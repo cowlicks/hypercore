@@ -99,3 +99,21 @@ pub use ed25519_dalek::{
     SecretKey, Signature, SigningKey, VerifyingKey, KEYPAIR_LENGTH, PUBLIC_KEY_LENGTH,
     SECRET_KEY_LENGTH,
 };
+
+use std::future::Future;
+
+/// Things that consume Hypercore's can provide this interface to them
+pub trait SharedCore {
+    /// Errors from Hypercore results
+    type Error: std::error::Error;
+
+    /// get a block
+    fn get(&self, index: u64) -> impl Future<Output = Result<Option<Vec<u8>>, Self::Error>> + Send;
+    /// Get info for the core
+    fn info(&self) -> impl Future<Output = Result<Info, Self::Error>> + Send;
+    /// Append data to the core
+    fn append(
+        &self,
+        data: &[u8],
+    ) -> impl Future<Output = Result<AppendOutcome, HypercoreError>> + Send;
+}
