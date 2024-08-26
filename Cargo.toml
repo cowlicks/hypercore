@@ -39,9 +39,8 @@ futures = "0.3"
 crc32fast = "1"
 intmap = "2"
 moka = { version = "0.12", optional = true, features = ["sync"] }
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-random-access-disk = { version = "3", default-features = false }
+tokio = { version = "1.34.0", features = ["macros", "rt", "sync"] }
+random-access-disk = { path = "../random-access-disk", default-features = false, features = ["sparse", "tokio"]}
 
 [dev-dependencies]
 anyhow = "1.0.70"
@@ -51,7 +50,7 @@ data-encoding = "2.2.0"
 remove_dir_all = "0.7.0"
 tempfile = "3.1.0"
 async-std = { version = "1.12.0", features = ["attributes"] }
-tokio = { version = "1.27.0", default-features = false, features = ["macros", "rt", "rt-multi-thread"] }
+tokio = { version = "1.34.0", features = ["macros", "rt", "sync"] }
 tokio-test = "0.4"
 sha2 = "0.10"
 criterion = { version = "0.4", features = ["async_std", "async_tokio"] }
@@ -59,7 +58,7 @@ test-log = { version = "0.2.11", default-features = false, features = ["trace"] 
 tracing-subscriber = { version = "0.3.16", features = ["env-filter", "fmt"] }
 
 [features]
-default = ["async-std", "sparse"]
+default = ["tokio", "sparse"]
 sparse = ["random-access-disk/sparse"]
 tokio = ["random-access-disk/tokio"]
 async-std = ["random-access-disk/async-std"]

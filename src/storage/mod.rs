@@ -53,6 +53,24 @@ pub(crate) fn map_random_access_err(err: RandomAccessError) -> HypercoreError {
 }
 
 impl Storage {
+    async fn create_disk(
+        dir: &PathBuf,
+        store: Store,
+    ) -> Result<Box<RandomAccessDisk>, RandomAccessError> {
+        dbg!();
+        let dir = dir.clone();
+        let name = match store {
+            Store::Tree => "tree",
+            Store::Data => "data",
+            Store::Bitfield => "bitfield",
+            Store::Oplog => "oplog",
+        };
+        dbg!();
+        let x = RandomAccessDisk::open(dir.as_path().join(name)).await?;
+        dbg!();
+        Ok(Box::new(x))
+    }
+
     /// Create a new instance. Takes a callback to create new storage instances and overwrite flag.
     pub async fn open<Cb>(create: Cb, overwrite: bool) -> Result<Self, HypercoreError>
     where
@@ -258,9 +276,58 @@ impl Storage {
     }
 
     /// New storage backed by a `RandomAccessDisk` instance.
+    #[instrument]
+    pub async fn new_disk(dir: &PathBuf, overwrite: bool) -> Result<Self, HypercoreError> {
+        dbg!();
+        dbg!();
+        dbg!();
+
+        dbg!();
+        let mut tree = Self::create_disk(&dir, Store::Tree)
+            .await
+            .map_err(map_random_access_err)?;
+        dbg!();
+        let mut data = Self::create_disk(&dir, Store::Data)
+            .await
+            .map_err(map_random_access_err)?;
+        dbg!();
+        let mut bitfield = Self::create_disk(&dir, Store::Bitfield)
+            .await
+            .map_err(map_random_access_err)?;
+        dbg!();
+        let mut oplog = Self::create_disk(&dir, Store::Oplog)
+            .await
+            .map_err(map_random_access_err)?;
+
+        if overwrite {
+            if tree.len().await.map_err(map_random_access_err)? > 0 {
+                tree.truncate(0).await.map_err(map_random_access_err)?;
+            }
+            if data.len().await.map_err(map_random_access_err)? > 0 {
+                data.truncate(0).await.map_err(map_random_access_err)?;
+            }
+            if bitfield.len().await.map_err(map_random_access_err)? > 0 {
+                bitfield.truncate(0).await.map_err(map_random_access_err)?;
+            }
+            if oplog.len().await.map_err(map_random_access_err)? > 0 {
+                oplog.truncate(0).await.map_err(map_random_access_err)?;
+            }
+        }
+
+        let instance = Self {
+            tree,
+            data,
+            bitfield,
+            oplog,
+        };
+
+        Ok(instance)
+    }
+
+    /// New storage backed by a `RandomAccessDisk` instance.
     #[cfg(not(target_arch = "wasm32"))]
     #[instrument(err)]
-    pub async fn new_disk(dir: &PathBuf, overwrite: bool) -> Result<Self, HypercoreError> {
+    pub async fn new_disk2(dir: &PathBuf, overwrite: bool) -> Result<Self, HypercoreError> {
         let storage = |store: Store| {
             let dir = dir.clone();
             async move {
