@@ -99,8 +99,76 @@ pub use ed25519_dalek::{
     SecretKey, Signature, SigningKey, VerifyingKey, KEYPAIR_LENGTH, PUBLIC_KEY_LENGTH,
     SECRET_KEY_LENGTH,
 };
+use tokio::sync::Mutex;
 
 use std::future::Future;
+use std::sync::Arc;
+
+/// Hypercore that can be shared across threads
+#[derive(Debug, Clone)]
+pub struct SharedCore(Arc<Mutex<Hypercore>>);
+
+impl SharedCore {
+    /// create a shared core from a hypercore
+    pub fn from_hypercore(core: Hypercore) -> Self {
+        SharedCore(Arc::new(Mutex::new(core)))
+    }
+}
+
+/// methods taht replication needs
+pub trait ReplicationMethods {
+    /// TODO err
+    type Error: std::error::Error;
+
+    /// ref Core::verify_and_apply_proof
+    fn verify_and_apply_proof(
+        &self,
+        proof: &Proof,
+    ) -> impl Future<Output = Result<bool, Self::Error>>;
+    /// ref Core::missing_nodes
+    fn missing_nodes(&self, index: u64) -> impl Future<Output = Result<u64, Self::Error>>;
+    /// ref Core::create_proof
+    fn create_proof(
+        &self,
+        block: Option<RequestBlock>,
+        hash: Option<RequestBlock>,
+        seek: Option<RequestSeek>,
+        upgrade: Option<RequestUpgrade>,
+    ) -> impl Future<Output = Result<Option<Proof>, Self::Error>>;
+}
+
+impl ReplicationMethods for SharedCore {
+    type Error = HypercoreError;
+    fn verify_and_apply_proof(
+        &self,
+        proof: &Proof,
+    ) -> impl Future<Output = Result<bool, HypercoreError>> {
+        async move {
+            let mut core = self.0.lock().await;
+            Ok(core.verify_and_apply_proof(proof).await?)
+        }
+    }
+
+    fn missing_nodes(&self, index: u64) -> impl Future<Output = Result<u64, HypercoreError>> {
+        async move {
+            let mut core = self.0.lock().await;
+            Ok(core.missing_nodes(index).await?)
+        }
+    }
+
+    fn create_proof(
+        &self,
+        block: Option<RequestBlock>,
+        hash: Option<RequestBlock>,
+        seek: Option<RequestSeek>,
+        upgrade: Option<RequestUpgrade>,
+    ) -> impl Future<Output = Result<Option<Proof>, HypercoreError>> {
+        async move {
+            let mut core = self.0.lock().await;
+            Ok(core.create_proof(block, hash, seek, upgrade).await?)
+        }
+    }
+}
 
 /// Things that consume Hypercore's can provide this interface to them
 pub trait SharedCore {
