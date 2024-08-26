@@ -99,14 +99,17 @@ pub use ed25519_dalek::{
     SecretKey, Signature, SigningKey, VerifyingKey, KEYPAIR_LENGTH, PUBLIC_KEY_LENGTH,
     SECRET_KEY_LENGTH,
 };
-use tokio::sync::Mutex;
+use tokio::sync::{
+    broadcast::{Receiver, Sender},
+    Mutex,
+};
 
 use std::future::Future;
 use std::sync::Arc;
 
 /// Hypercore that can be shared across threads
 #[derive(Debug, Clone)]
-pub struct SharedCore(Arc<Mutex<Hypercore>>);
+pub struct SharedCore(pub Arc<Mutex<Hypercore>>);
 
 impl SharedCore {
     /// create a shared core from a hypercore
@@ -115,9 +118,12 @@ impl SharedCore {
     }
 }
 
-/// methods taht replication needs
+/// methods needed for replication
+/// TODO add:
+/// * on_get_subscribe
+/// * on_upgrade
 pub trait ReplicationMethods {
-    /// TODO err
+    /// TODO document me
     type Error: std::error::Error;
 
     /// ref Core::verify_and_apply_proof
@@ -135,6 +141,14 @@ pub trait ReplicationMethods {
         seek: Option<RequestSeek>,
         upgrade: Option<RequestUpgrade>,
     ) -> impl Future<Output = Result<Option<Proof>, Self::Error>>;
+
+    /// Get this cores key pair
+    fn key_pair(&self) -> impl Future<Output = PartialKeypair>;
+
+    /// emit an event on Hypercore::append
+    fn on_upgrade(&self) -> impl Future<Output = Receiver<()>>;
+    /// subscribe to events on `Hypercore::get(i)` for missing `i`
+    fn on_get_subscribe(&self) -> impl Future<Output = Receiver<(u64, Sender<()>)>>;
 }
 
 impl ReplicationMethods for SharedCore {
@@ -167,6 +181,21 @@ impl ReplicationMethods for SharedCore {
             let mut core = self.0.lock().await;
             Ok(core.create_proof(block, hash, seek, upgrade).await?)
         }
+    }
+
+    fn key_pair(&self) -> impl Future<Output = PartialKeypair> {
+        async move {
+            let core = self.0.lock().await;
+            core.key_pair().clone()
+        }
+    }
+
+    fn on_upgrade(&self) -> impl Future<Output = Receiver<()>> {
+        async move { self.0.lock().await.on_upgrade() }
+    }
+
+    fn on_get_subscribe(&self) -> impl Future<Output = Receiver<(u64, Sender<()>)>> {
+        async move { self.0.lock().await.on_get_subscribe() }
     }
 }
 

@@ -363,12 +363,15 @@ impl Hypercore {
 
     #[cfg(feature = "tokio")]
     /// Subscribe to upgrade events
+    /// TODO rename to on_upgrade_subscribe
+    /// TODO should this emit some info about the append?
+    /// like AppendOutcome? the resulting index? the data?
     pub fn on_upgrade(&self) -> Receiver<()> {
         self.events.on_upgrade.subscribe()
     }
 
     #[cfg(feature = "tokio")]
-    /// Notify listeners of a get request
+    /// Notify when `Hypercore::get(i)` and `i` is not in core.
     pub fn on_get(&self, index: u64) -> Receiver<()> {
         let (tx, rx) = broadcast::channel(1);
         let _ = self.events.on_get.send((index, tx));
@@ -376,7 +379,8 @@ impl Hypercore {
     }
 
     #[cfg(feature = "tokio")]
-    /// Subscribe to `.get` requests
+    /// Subscribe to `Hypercore::get(i)` requests for data that is not in core.
+    /// Used in replication to fetch missing data
     pub fn on_get_subscribe(&self) -> Receiver<(u64, Sender<()>)> {
         self.events.on_get.subscribe()
     }
