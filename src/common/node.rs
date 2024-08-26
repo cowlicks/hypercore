@@ -18,7 +18,7 @@ pub(crate) struct NodeByteRange {
 // TODO: replace `hash: Vec<u8>` with `hash: Hash`. This requires patching /
 // rewriting the Blake2b crate to support `.from_bytes()` to serialize from
 // disk.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Node {
     /// TODO document me
     pub(crate) index: u64,
@@ -27,10 +27,22 @@ pub struct Node {
     /// number of bytes of the data
     pub(crate) length: u64,
     pub(crate) parent: u64,
-    /// The data. Other metadata in this struct is provided before the actual data.
-    /// so it is optional
+    /// The data
     pub(crate) data: Option<Vec<u8>>,
     pub(crate) blank: bool,
+}
+
+impl std::fmt::Debug for Node {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Node")
+            .field("index", &self.index)
+            .field("hash", &format!("{:?}", &self.hash))
+            .field("length", &self.length)
+            .field("parent", &self.parent)
+            .field("data", &format!("{:?}", &self.data))
+            .field("blank", &self.blank)
+            .finish()
+    }
 }
 
 impl Node {

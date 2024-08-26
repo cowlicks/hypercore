@@ -103,7 +103,7 @@ pub struct DataSeek {
     pub nodes: Vec<Node>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 /// TODO: Document
 pub struct DataUpgrade {
     /// starting block of this upgrade response
@@ -116,6 +116,18 @@ pub struct DataUpgrade {
     pub additional_nodes: Vec<Node>,
     /// TODO: Document
     pub signature: Vec<u8>,
+}
+
+impl std::fmt::Debug for DataUpgrade {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DataUpgrade")
+            .field("start", &self.start)
+            .field("length", &self.length)
+            .field("nodes", &self.nodes)
+            .field("additional_nodes", &self.additional_nodes)
+            .field("signature", &self.signature.len())
+            .finish()
+    }
 }
 
 impl Display for DataUpgrade {
