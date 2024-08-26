@@ -171,7 +171,7 @@ impl ReplicationMethods for SharedCore {
 }
 
 /// Things that consume Hypercore's can provide this interface to them
-pub trait SharedCoreMethods {
+pub trait CoreMethods {
     /// Errors from Hypercore results
     type Error: std::error::Error;
 
@@ -186,7 +186,7 @@ pub trait SharedCoreMethods {
     ) -> impl Future<Output = Result<AppendOutcome, HypercoreError>> + Send;
 }
 
-impl SharedCoreMethods for SharedCore {
+impl CoreMethods for SharedCore {
     type Error = HypercoreError;
 
     fn get(&self, index: u64) -> impl Future<Output = Result<Option<Vec<u8>>, Self::Error>> + Send {
