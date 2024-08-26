@@ -171,17 +171,45 @@ impl ReplicationMethods for SharedCore {
 }
 
 /// Things that consume Hypercore's can provide this interface to them
-pub trait SharedCore {
+pub trait SharedCoreMethods {
     /// Errors from Hypercore results
     type Error: std::error::Error;
 
     /// get a block
     fn get(&self, index: u64) -> impl Future<Output = Result<Option<Vec<u8>>, Self::Error>> + Send;
-    /// Get info for the core
-    fn info(&self) -> impl Future<Output = Result<Info, Self::Error>> + Send;
+    ///TODO rm result Get info for the core
+    fn info(&self) -> impl Future<Output = Info> + Send;
     /// Append data to the core
     fn append(
         &self,
         data: &[u8],
     ) -> impl Future<Output = Result<AppendOutcome, HypercoreError>> + Send;
+}
+
+impl SharedCoreMethods for SharedCore {
+    type Error = HypercoreError;
+
+    fn get(&self, index: u64) -> impl Future<Output = Result<Option<Vec<u8>>, Self::Error>> + Send {
+        async move {
+            let mut core = self.0.lock().await;
+            Ok(core.get(index).await?)
+        }
+    }
+
+    fn info(&self) -> impl Future<Output = Info> + Send {
+        async move {
+            let core = &self.0.lock().await;
+            core.info()
+        }
+    }
+
+    fn append(
+        &self,
+        data: &[u8],
+    ) -> impl Future<Output = Result<AppendOutcome, HypercoreError>> + Send {
+        async move {
+            let mut core = self.0.lock().await;
+            Ok(core.append(data).await?)
+        }
+    }
 }
