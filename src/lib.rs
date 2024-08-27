@@ -111,6 +111,11 @@ use std::sync::Arc;
 #[derive(Debug, Clone)]
 pub struct SharedCore(pub Arc<Mutex<Hypercore>>);
 
+impl From<Hypercore> for SharedCore {
+    fn from(core: Hypercore) -> Self {
+        SharedCore(Arc::new(Mutex::new(core)))
+    }
+}
 impl SharedCore {
     /// create a shared core from a hypercore
     pub fn from_hypercore(core: Hypercore) -> Self {
