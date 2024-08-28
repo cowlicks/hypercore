@@ -123,18 +123,41 @@ impl SharedCore {
     }
 }
 
-/// methods needed for replication
-pub trait ReplicationMethods {
-    /// TODO document me
-    type Error: std::error::Error;
+/// Has [`Info`]
+pub trait CoreInfo {
+    /// Get info for the core
+    fn info(&self) -> impl Future<Output = Info> + Send;
+}
 
+impl CoreInfo for SharedCore {
+    fn info(&self) -> impl Future<Output = Info> + Send {
+        async move {
+            let core = &self.0.lock().await;
+            core.info()
+        }
+    }
+}
+
+/// Error for ReplicationMethods trait
+#[derive(thiserror::Error, Debug)]
+pub enum ReplicationMethodsError {
+    /// Error from hypercore
+    #[error("Got a hypercore error")]
+    HypercoreError(#[from] HypercoreError),
+}
+
+/// methods needed for replication
+pub trait ReplicationMethods: CoreInfo + Send {
     /// ref Core::verify_and_apply_proof
     fn verify_and_apply_proof(
         &self,
         proof: &Proof,
-    ) -> impl Future<Output = Result<bool, Self::Error>>;
+    ) -> impl Future<Output = Result<bool, ReplicationMethodsError>> + Send;
     /// ref Core::missing_nodes
-    fn missing_nodes(&self, index: u64) -> impl Future<Output = Result<u64, Self::Error>>;
+    fn missing_nodes(
+        &self,
+        index: u64,
+    ) -> impl Future<Output = Result<u64, ReplicationMethodsError>> + Send;
     /// ref Core::create_proof
     fn create_proof(
         &self,
@@ -142,10 +165,10 @@ pub trait ReplicationMethods {
         hash: Option<RequestBlock>,
         seek: Option<RequestSeek>,
         upgrade: Option<RequestUpgrade>,
-    ) -> impl Future<Output = Result<Option<Proof>, Self::Error>>;
+    ) -> impl Future<Output = Result<Option<Proof>, ReplicationMethodsError>> + Send;
 
     /// Get this cores key pair
-    fn key_pair(&self) -> impl Future<Output = PartialKeypair>;
+    fn key_pair(&self) -> impl Future<Output = PartialKeypair> + Send;
 
     /// emit an event on Hypercore::append
     fn on_append_subscribe(&self) -> impl Future<Output = Receiver<()>>;
@@ -154,18 +177,20 @@ pub trait ReplicationMethods {
 }
 
 impl ReplicationMethods for SharedCore {
-    type Error = HypercoreError;
     fn verify_and_apply_proof(
         &self,
         proof: &Proof,
-    ) -> impl Future<Output = Result<bool, HypercoreError>> {
+    ) -> impl Future<Output = Result<bool, ReplicationMethodsError>> {
         async move {
             let mut core = self.0.lock().await;
             Ok(core.verify_and_apply_proof(proof).await?)
         }
     }
 
-    fn missing_nodes(&self, index: u64) -> impl Future<Output = Result<u64, HypercoreError>> {
+    fn missing_nodes(
+        &self,
+        index: u64,
+    ) -> impl Future<Output = Result<u64, ReplicationMethodsError>> {
         async move {
             let mut core = self.0.lock().await;
             Ok(core.missing_nodes(index).await?)
@@ -178,7 +203,7 @@ impl ReplicationMethods for SharedCore {
         hash: Option<RequestBlock>,
         seek: Option<RequestSeek>,
         upgrade: Option<RequestUpgrade>,
-    ) -> impl Future<Output = Result<Option<Proof>, HypercoreError>> {
+    ) -> impl Future<Output = Result<Option<Proof>, ReplicationMethodsError>> {
         async move {
             let mut core = self.0.lock().await;
             Ok(core.create_proof(block, hash, seek, upgrade).await?)
@@ -201,43 +226,45 @@ impl ReplicationMethods for SharedCore {
     }
 }
 
+/// Error for ReplicationMethods trait
+#[derive(thiserror::Error, Debug)]
+pub enum CoreMethodsError {
+    /// Error from hypercore
+    #[error("Got a hypercore error")]
+    HypercoreError(#[from] HypercoreError),
+}
+
 /// Things that consume Hypercore's can provide this interface to them
-pub trait CoreMethods {
+pub trait CoreMethods: CoreInfo {
     /// Errors from Hypercore results
-    type Error: std::error::Error;
 
     /// get a block
-    fn get(&self, index: u64) -> impl Future<Output = Result<Option<Vec<u8>>, Self::Error>> + Send;
-    ///TODO rm result Get info for the core
-    fn info(&self) -> impl Future<Output = Info> + Send;
+    fn get(
+        &self,
+        index: u64,
+    ) -> impl Future<Output = Result<Option<Vec<u8>>, CoreMethodsError>> + Send;
     /// Append data to the core
     fn append(
         &self,
         data: &[u8],
-    ) -> impl Future<Output = Result<AppendOutcome, HypercoreError>> + Send;
+    ) -> impl Future<Output = Result<AppendOutcome, CoreMethodsError>> + Send;
 }
 
 impl CoreMethods for SharedCore {
-    type Error = HypercoreError;
-
-    fn get(&self, index: u64) -> impl Future<Output = Result<Option<Vec<u8>>, Self::Error>> + Send {
+    fn get(
+        &self,
+        index: u64,
+    ) -> impl Future<Output = Result<Option<Vec<u8>>, CoreMethodsError>> + Send {
         async move {
             let mut core = self.0.lock().await;
             Ok(core.get(index).await?)
         }
     }
 
-    fn info(&self) -> impl Future<Output = Info> + Send {
-        async move {
-            let core = &self.0.lock().await;
-            core.info()
-        }
-    }
-
     fn append(
         &self,
         data: &[u8],
-    ) -> impl Future<Output = Result<AppendOutcome, HypercoreError>> + Send {
+    ) -> impl Future<Output = Result<AppendOutcome, CoreMethodsError>> + Send {
         async move {
             let mut core = self.0.lock().await;
             Ok(core.append(data).await?)
