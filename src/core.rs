@@ -45,7 +45,7 @@ impl HypercoreOptions {
 #[cfg(feature = "tokio")]
 struct Events {
     /// Sends a notification to the replicator that core is upgraded
-    on_upgrade: Sender<()>,
+    on_append: Sender<()>,
     /// Notify receiver to get block over the network.
     on_get: Sender<(u64, Sender<()>)>,
 }
@@ -53,9 +53,9 @@ struct Events {
 #[cfg(feature = "tokio")]
 impl Events {
     fn new() -> Self {
-        let (on_upgrade, _) = broadcast::channel(MAX_EVENT_QUEUE_CAPACITY);
+        let (on_append, _) = broadcast::channel(MAX_EVENT_QUEUE_CAPACITY);
         let (on_get, _) = broadcast::channel(MAX_EVENT_QUEUE_CAPACITY);
-        Self { on_upgrade, on_get }
+        Self { on_append, on_get }
     }
 }
 
@@ -352,7 +352,7 @@ impl Hypercore {
         // NB: send() returns an error when there are no receivers. Which is the case when there is
         // no replication. We ignore the error. No recievers is ok.
         #[cfg(feature = "tokio")]
-        let _ = self.events.on_upgrade.send(());
+        let _ = self.events.on_append.send(());
 
         // Return the new value
         Ok(AppendOutcome {
@@ -366,8 +366,8 @@ impl Hypercore {
     /// TODO rename to on_upgrade_subscribe
     /// TODO should this emit some info about the append?
     /// like AppendOutcome? the resulting index? the data?
-    pub fn on_upgrade(&self) -> Receiver<()> {
-        self.events.on_upgrade.subscribe()
+    pub fn on_append_subscribe(&self) -> Receiver<()> {
+        self.events.on_append.subscribe()
     }
 
     #[cfg(feature = "tokio")]

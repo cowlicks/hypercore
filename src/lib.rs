@@ -124,9 +124,6 @@ impl SharedCore {
 }
 
 /// methods needed for replication
-/// TODO add:
-/// * on_get_subscribe
-/// * on_upgrade
 pub trait ReplicationMethods {
     /// TODO document me
     type Error: std::error::Error;
@@ -151,7 +148,7 @@ pub trait ReplicationMethods {
     fn key_pair(&self) -> impl Future<Output = PartialKeypair>;
 
     /// emit an event on Hypercore::append
-    fn on_upgrade(&self) -> impl Future<Output = Receiver<()>>;
+    fn on_append_subscribe(&self) -> impl Future<Output = Receiver<()>>;
     /// subscribe to events on `Hypercore::get(i)` for missing `i`
     fn on_get_subscribe(&self) -> impl Future<Output = Receiver<(u64, Sender<()>)>>;
 }
@@ -195,8 +192,8 @@ impl ReplicationMethods for SharedCore {
         }
     }
 
-    fn on_upgrade(&self) -> impl Future<Output = Receiver<()>> {
-        async move { self.0.lock().await.on_upgrade() }
+    fn on_append_subscribe(&self) -> impl Future<Output = Receiver<()>> {
+        async move { self.0.lock().await.on_append_subscribe() }
     }
 
     fn on_get_subscribe(&self) -> impl Future<Output = Receiver<(u64, Sender<()>)>> {
