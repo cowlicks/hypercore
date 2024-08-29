@@ -29,7 +29,10 @@ impl SharedCore {
 /// Has [`Info`]
 pub trait CoreInfo {
     /// Get info for the core
+    /// Get core info (see: [`Hypercore::info`]
     fn info(&self) -> impl Future<Output = Info> + Send;
+    /// Get the key_pair (see: [`Hypercore::key_pair`]
+    fn key_pair(&self) -> impl Future<Output = PartialKeypair> + Send;
 }
 
 impl CoreInfo for SharedCore {
@@ -39,13 +42,20 @@ impl CoreInfo for SharedCore {
             core.info()
         }
     }
+
+    fn key_pair(&self) -> impl Future<Output = PartialKeypair> + Send {
+        async move {
+            let core = &self.0.lock().await;
+            core.key_pair().clone()
+        }
+    }
 }
 
 /// Error for ReplicationMethods trait
 #[derive(thiserror::Error, Debug)]
 pub enum ReplicationMethodsError {
     /// Error from hypercore
-    #[error("Got a hypercore error")]
+    #[error("Got a hypercore error: [{0}]")]
     HypercoreError(#[from] HypercoreError),
 }
 
@@ -69,9 +79,6 @@ pub trait ReplicationMethods: CoreInfo + Send {
         seek: Option<RequestSeek>,
         upgrade: Option<RequestUpgrade>,
     ) -> impl Future<Output = Result<Option<Proof>, ReplicationMethodsError>> + Send;
-
-    /// Get this cores key pair
-    fn key_pair(&self) -> impl Future<Output = PartialKeypair> + Send;
 
     /// emit an event on Hypercore::append
     fn on_append_subscribe(&self) -> impl Future<Output = Receiver<()>>;
@@ -113,13 +120,6 @@ impl ReplicationMethods for SharedCore {
         }
     }
 
-    fn key_pair(&self) -> impl Future<Output = PartialKeypair> {
-        async move {
-            let core = self.0.lock().await;
-            core.key_pair().clone()
-        }
-    }
-
     fn on_append_subscribe(&self) -> impl Future<Output = Receiver<()>> {
         async move { self.0.lock().await.on_append_subscribe() }
     }
@@ -133,21 +133,8 @@ impl ReplicationMethods for SharedCore {
 #[derive(thiserror::Error, Debug)]
 pub enum CoreMethodsError {
     /// Error from hypercore
-    #[error("Got a hypercore error")]
+    #[error("Got a hypercore error [{0}]")]
     HypercoreError(#[from] HypercoreError),
-}
-
-/// with gat
-pub trait CoreMethods2: CoreInfo {
-    /// Errors from Hypercore results
-    type Error: std::error::Error;
-    /// get a block
-    fn get(&self, index: u64) -> impl Future<Output = Result<Option<Vec<u8>>, Self::Error>> + Send;
-    /// Append data to the core
-    fn append(
-        &self,
-        data: &[u8],
-    ) -> impl Future<Output = Result<AppendOutcome, Self::Error>> + Send;
 }
 
 /// Things that consume Hypercore's can provide this interface to them
