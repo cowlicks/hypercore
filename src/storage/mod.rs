@@ -119,6 +119,7 @@ impl Storage {
     }
 
     /// Reads infos but retains them as a Vec
+    #[instrument(skip(self))]
     pub(crate) async fn read_infos_to_vec(
         &mut self,
         info_instructions: &[StoreInfoInstruction],
