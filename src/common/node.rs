@@ -6,6 +6,7 @@ use std::convert::AsRef;
 use std::fmt::{self, Display};
 
 use crate::crypto::Hash;
+use serde::Serialize;
 
 /// Node byte range
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,7 +19,7 @@ pub(crate) struct NodeByteRange {
 // TODO: replace `hash: Vec<u8>` with `hash: Hash`. This requires patching /
 // rewriting the Blake2b crate to support `.from_bytes()` to serialize from
 // disk.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Serialize, Clone, PartialEq, Eq)]
 pub struct Node {
     /// TODO document me
     pub(crate) index: u64,

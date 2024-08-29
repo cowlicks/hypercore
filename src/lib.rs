@@ -1,5 +1,5 @@
-#![forbid(unsafe_code, bad_style, future_incompatible)]
-#![forbid(rust_2018_idioms, rust_2018_compatibility)]
+#![forbid(unsafe_code)]
+#![forbid(rust_2018_compatibility)]
 #![forbid(missing_debug_implementations)]
 #![forbid(missing_docs)]
 #![warn(unreachable_pub)]

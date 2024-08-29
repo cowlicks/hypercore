@@ -5,7 +5,7 @@ use std::convert::TryFrom;
 use std::fmt::Debug;
 #[cfg(feature = "tokio")]
 use tokio::sync::broadcast::{self, Receiver, Sender};
-use tracing::instrument;
+use tracing::{debug, instrument};
 
 #[cfg(feature = "tokio")]
 static MAX_EVENT_QUEUE_CAPACITY: usize = 32;
@@ -299,6 +299,7 @@ impl Hypercore {
         &mut self,
         batch: B,
     ) -> Result<AppendOutcome, HypercoreError> {
+        debug!("");
         let secret_key = match &self.key_pair.secret {
             Some(key) => key,
             None => return Err(HypercoreError::NotWritable),
