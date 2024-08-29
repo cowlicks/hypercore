@@ -4,8 +4,9 @@
 use std::fmt::Display;
 
 use crate::Node;
+use serde::Serialize;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize, Debug, Clone, PartialEq)]
 /// Request of a DataBlock or DataHash from peer
 pub struct RequestBlock {
     /// Hypercore index
@@ -14,14 +15,14 @@ pub struct RequestBlock {
     pub nodes: u64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize, Debug, Clone, PartialEq)]
 /// Request of a DataSeek from peer
 pub struct RequestSeek {
     /// TODO: document
     pub bytes: u64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize, Debug, Clone, PartialEq)]
 /// Request of a DataUpgrade from peer
 pub struct RequestUpgrade {
     /// Hypercore start index
@@ -74,7 +75,7 @@ impl ValuelessProof {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize, Debug, Clone, PartialEq)]
 /// Block of data to peer
 pub struct DataBlock {
     /// Hypercore index
@@ -85,7 +86,7 @@ pub struct DataBlock {
     pub nodes: Vec<Node>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize, Debug, Clone, PartialEq)]
 /// Data hash to peer
 pub struct DataHash {
     /// Hypercore index
@@ -94,7 +95,7 @@ pub struct DataHash {
     pub nodes: Vec<Node>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize, Debug, Clone, PartialEq)]
 /// TODO: Document
 pub struct DataSeek {
     /// TODO: Document
@@ -103,7 +104,7 @@ pub struct DataSeek {
     pub nodes: Vec<Node>,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Serialize, Clone, PartialEq)]
 /// TODO: Document
 pub struct DataUpgrade {
     /// starting block of this upgrade response
