@@ -1,7 +1,7 @@
 //! External interface for replication
 use crate::{
-    AppendOutcome, Hypercore, HypercoreError, Info, PartialKeypair, Proof, RequestBlock,
-    RequestSeek, RequestUpgrade,
+    core::OnAppendEvent, AppendOutcome, Hypercore, HypercoreError, Info, PartialKeypair, Proof,
+    RequestBlock, RequestSeek, RequestUpgrade,
 };
 use tokio::sync::{
     broadcast::{Receiver, Sender},
@@ -81,7 +81,7 @@ pub trait ReplicationMethods: CoreInfo + Send {
     ) -> impl Future<Output = Result<Option<Proof>, ReplicationMethodsError>> + Send;
 
     /// emit an event on Hypercore::append
-    fn on_append_subscribe(&self) -> impl Future<Output = Receiver<()>>;
+    fn on_append_subscribe(&self) -> impl Future<Output = Receiver<OnAppendEvent>>;
     /// subscribe to events on `Hypercore::get(i)` for missing `i`
     fn on_get_subscribe(&self) -> impl Future<Output = Receiver<(u64, Sender<()>)>>;
 }
@@ -120,7 +120,7 @@ impl ReplicationMethods for SharedCore {
         }
     }
 
-    fn on_append_subscribe(&self) -> impl Future<Output = Receiver<()>> {
+    fn on_append_subscribe(&self) -> impl Future<Output = Receiver<OnAppendEvent>> {
         async move { self.0.lock().await.on_append_subscribe() }
     }
 

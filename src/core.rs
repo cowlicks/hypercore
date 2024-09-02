@@ -5,7 +5,7 @@ use std::convert::TryFrom;
 use std::fmt::Debug;
 #[cfg(feature = "tokio")]
 use tokio::sync::broadcast::{self, Receiver, Sender};
-use tracing::{debug, instrument};
+use tracing::instrument;
 
 #[cfg(feature = "tokio")]
 static MAX_EVENT_QUEUE_CAPACITY: usize = 32;
@@ -41,11 +41,18 @@ impl HypercoreOptions {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct OnAppendEvent {
+    pub append_outcome: AppendOutcome,
+    pub start: u64,
+    pub length: u64,
+}
+
 #[derive(Debug)]
 #[cfg(feature = "tokio")]
 struct Events {
     /// Sends a notification to the replicator that core is upgraded
-    on_append: Sender<()>,
+    on_append: Sender<OnAppendEvent>,
     /// Notify receiver to get block over the network.
     on_get: Sender<(u64, Sender<()>)>,
 }
@@ -75,7 +82,7 @@ pub struct Hypercore {
 }
 
 /// Response from append, matches that of the Javascript result
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AppendOutcome {
     /// Length of the hypercore after append
     pub length: u64,
@@ -299,13 +306,13 @@ impl Hypercore {
         &mut self,
         batch: B,
     ) -> Result<AppendOutcome, HypercoreError> {
-        debug!("");
         let secret_key = match &self.key_pair.secret {
             Some(key) => key,
             None => return Err(HypercoreError::NotWritable),
         };
 
-        if !batch.as_ref().is_empty() {
+        let (start, length) = if !batch.as_ref().is_empty() {
+            let start = self.tree.length;
             // Create a changeset for the tree
             let mut changeset = self.tree.changeset();
             let mut batch_length: usize = 0;
@@ -348,12 +355,23 @@ impl Hypercore {
             if self.should_flush_bitfield_and_tree_and_oplog() {
                 self.flush_bitfield_and_tree_and_oplog(false).await?;
             }
-        }
+            Ok::<(u64, u64), HypercoreError>((start, batch_length.try_into().unwrap()))
+        } else {
+            Ok((self.tree.length, 0))
+        }?;
 
+        let out = AppendOutcome {
+            length: self.tree.length,
+            byte_length: self.tree.byte_length,
+        };
         // NB: send() returns an error when there are no receivers. Which is the case when there is
         // no replication. We ignore the error. No recievers is ok.
         #[cfg(feature = "tokio")]
-        let _ = self.events.on_append.send(());
+        let _ = self.events.on_append.send(OnAppendEvent {
+            append_outcome: out,
+            start,
+            length,
+        });
 
         // Return the new value
         Ok(AppendOutcome {
@@ -367,7 +385,7 @@ impl Hypercore {
     /// TODO rename to on_upgrade_subscribe
     /// TODO should this emit some info about the append?
     /// like AppendOutcome? the resulting index? the data?
-    pub fn on_append_subscribe(&self) -> Receiver<()> {
+    pub fn on_append_subscribe(&self) -> Receiver<OnAppendEvent> {
         self.events.on_append.subscribe()
     }
 
