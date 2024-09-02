@@ -149,8 +149,8 @@ impl Storage {
                             &buf,
                         )),
                         Err(RandomAccessError::OutOfBounds {
-                            offset: _,
-                            end: _,
+                            offset,
+                            end,
                             length,
                         }) => {
                             if instruction.allow_miss {
@@ -160,12 +160,9 @@ impl Storage {
                                 ))
                             } else {
                                 Err(HypercoreError::InvalidOperation {
+                                    // TODO why?
                                     context: format!(
-                                        "Could not read from store {}, index {} / length {} is out of bounds for store length {}",
-                                        instruction.index,
-                                        read_length,
-                                        current_store,
-                                        length
+                                        "Could not read bytes [{offset}] to [{end:?}]. Total store length [{length}]. Sore kind [{current_store}]",
                                     ),
                                 })
                             }
