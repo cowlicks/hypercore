@@ -1,8 +1,13 @@
 //! External interface for replication
+pub mod events;
+
 use crate::{
-    AppendOutcome, EventMsg, Hypercore, HypercoreError, Info, PartialKeypair, Proof, RequestBlock,
+    AppendOutcome, Hypercore, HypercoreError, Info, PartialKeypair, Proof, RequestBlock,
     RequestSeek, RequestUpgrade,
 };
+
+use events::EventMsg;
+
 use tokio::sync::{broadcast::Receiver, Mutex};
 
 use std::future::Future;
