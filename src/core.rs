@@ -98,11 +98,10 @@ mod events {
             }
         }
 
-        pub(crate) fn send<T: Into<EventMsg>>(&self, evt: T) -> Result<usize, HypercoreError> {
-            match self.channel.send(evt.into()) {
-                Err(_err) => todo!(),
-                Ok(x) => Ok(x),
-            }
+        pub(crate) fn send<T: Into<EventMsg>>(&self, evt: T) -> Result<(), HypercoreError> {
+            // TODO error should be ignored it just means no replicator subscribed to events
+            let _ = self.channel.send(evt.into());
+            Ok(())
         }
 
         pub(crate) fn send_on_get(&self, index: u64) -> Receiver<()> {
