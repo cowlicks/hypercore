@@ -93,8 +93,9 @@ pub use crate::common::{
     DataBlock, DataHash, DataSeek, DataUpgrade, HypercoreError, Node, Proof, RequestBlock,
     RequestSeek, RequestUpgrade, Store,
 };
-pub use crate::core::{AppendOutcome, EventMsg, Hypercore, Info, OnAppendEvent};
+pub use crate::core::{AppendOutcome, Hypercore, Info};
 pub use crate::crypto::{generate_signing_key, sign, verify, PartialKeypair};
+pub use crate::replication::events::EventMsg;
 pub use crate::storage::{Storage, StorageTraits};
 pub use ed25519_dalek::{
     SecretKey, Signature, SigningKey, VerifyingKey, KEYPAIR_LENGTH, PUBLIC_KEY_LENGTH,
