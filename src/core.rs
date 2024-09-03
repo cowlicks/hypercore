@@ -41,30 +41,83 @@ impl HypercoreOptions {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct OnAppendEvent {
-    pub append_outcome: AppendOutcome,
-    pub start: u64,
-    pub length: u64,
-}
+// TODO move to file
+mod events {
+    use super::*;
 
-#[derive(Debug)]
-#[cfg(feature = "tokio")]
-struct Events {
-    /// Sends a notification to the replicator that core is upgraded
-    on_append: Sender<OnAppendEvent>,
-    /// Notify receiver to get block over the network.
-    on_get: Sender<(u64, Sender<()>)>,
-}
+    #[derive(Clone, Debug)]
+    /// Event emeitted by on_append
+    pub struct OnAppendEvent {
+        /// outcome of append
+        pub append_outcome: AppendOutcome,
+        /// startind block index of append
+        pub start: u64,
+        /// length of apppend (in blocks )
+        pub length: u64,
+    }
 
-#[cfg(feature = "tokio")]
-impl Events {
-    fn new() -> Self {
-        let (on_append, _) = broadcast::channel(MAX_EVENT_QUEUE_CAPACITY);
-        let (on_get, _) = broadcast::channel(MAX_EVENT_QUEUE_CAPACITY);
-        Self { on_append, on_get }
+    #[derive(Debug, Clone)]
+    pub struct OnGetEvent {
+        pub index: u64,
+        pub get_result: Sender<()>,
+    }
+
+    #[derive(Debug, Clone)]
+    /// Core events relative to the replicator
+    pub enum EventMsg {
+        /// emmited when core.append happens
+        OnAppend(OnAppendEvent),
+        /// emmited when core.get(i) happens for a missing block
+        OnGet(OnGetEvent),
+    }
+
+    impl From<OnAppendEvent> for EventMsg {
+        fn from(value: OnAppendEvent) -> Self {
+            EventMsg::OnAppend(value)
+        }
+    }
+
+    impl From<OnGetEvent> for EventMsg {
+        fn from(value: OnGetEvent) -> Self {
+            EventMsg::OnGet(value)
+        }
+    }
+
+    #[derive(Debug)]
+    #[cfg(feature = "tokio")]
+    pub(crate) struct Events {
+        /// Channel for core events
+        pub(crate) channel: Sender<EventMsg>,
+    }
+
+    #[cfg(feature = "tokio")]
+    impl Events {
+        pub(crate) fn new() -> Self {
+            Self {
+                channel: broadcast::channel(MAX_EVENT_QUEUE_CAPACITY).0,
+            }
+        }
+
+        pub(crate) fn send<T: Into<EventMsg>>(&self, evt: T) -> Result<usize, HypercoreError> {
+            match self.channel.send(evt.into()) {
+                Err(_err) => todo!(),
+                Ok(x) => Ok(x),
+            }
+        }
+
+        pub(crate) fn send_on_get(&self, index: u64) -> Receiver<()> {
+            let (tx, rx) = broadcast::channel(1);
+            let _ = self.send(OnGetEvent {
+                index,
+                get_result: tx,
+            });
+            rx
+        }
     }
 }
+
+pub(crate) use events::Events;
+pub use events::{EventMsg, OnAppendEvent};
 
 /// Hypercore is an append-only log structure.
 #[derive(Debug)]
@@ -367,7 +420,7 @@ impl Hypercore {
         // NB: send() returns an error when there are no receivers. Which is the case when there is
         // no replication. We ignore the error. No recievers is ok.
         #[cfg(feature = "tokio")]
-        let _ = self.events.on_append.send(OnAppendEvent {
+        let _ = self.events.send(OnAppendEvent {
             append_outcome: out,
             start,
             length,
@@ -380,28 +433,9 @@ impl Hypercore {
         })
     }
 
-    #[cfg(feature = "tokio")]
-    /// Subscribe to upgrade events
-    /// TODO rename to on_upgrade_subscribe
-    /// TODO should this emit some info about the append?
-    /// like AppendOutcome? the resulting index? the data?
-    pub fn on_append_subscribe(&self) -> Receiver<OnAppendEvent> {
-        self.events.on_append.subscribe()
-    }
-
-    #[cfg(feature = "tokio")]
-    /// Notify when `Hypercore::get(i)` and `i` is not in core.
-    pub fn on_get(&self, index: u64) -> Receiver<()> {
-        let (tx, rx) = broadcast::channel(1);
-        let _ = self.events.on_get.send((index, tx));
-        rx
-    }
-
-    #[cfg(feature = "tokio")]
-    /// Subscribe to `Hypercore::get(i)` requests for data that is not in core.
-    /// Used in replication to fetch missing data
-    pub fn on_get_subscribe(&self) -> Receiver<(u64, Sender<()>)> {
-        self.events.on_get.subscribe()
+    /// Subscribe to core events relevant to replication
+    pub fn event_subscribe(&self) -> Receiver<EventMsg> {
+        self.events.channel.subscribe()
     }
 
     /// Read value at given index, if any.
@@ -412,7 +446,7 @@ impl Hypercore {
             // try getting it over the network
             #[cfg(feature = "tokio")]
             {
-                let mut rx = self.on_get(index);
+                let mut rx = self.events.send_on_get(index);
                 //let res = rx.recv().await.unwrap();
                 tokio::spawn(async move {
                     let _ = rx.recv().await;
