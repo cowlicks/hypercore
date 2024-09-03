@@ -1,12 +1,9 @@
 //! External interface for replication
 use crate::{
-    core::OnAppendEvent, AppendOutcome, Hypercore, HypercoreError, Info, PartialKeypair, Proof,
-    RequestBlock, RequestSeek, RequestUpgrade,
+    AppendOutcome, EventMsg, Hypercore, HypercoreError, Info, PartialKeypair, Proof, RequestBlock,
+    RequestSeek, RequestUpgrade,
 };
-use tokio::sync::{
-    broadcast::{Receiver, Sender},
-    Mutex,
-};
+use tokio::sync::{broadcast::Receiver, Mutex};
 
 use std::future::Future;
 use std::sync::Arc;
@@ -79,11 +76,8 @@ pub trait ReplicationMethods: CoreInfo + Send {
         seek: Option<RequestSeek>,
         upgrade: Option<RequestUpgrade>,
     ) -> impl Future<Output = Result<Option<Proof>, ReplicationMethodsError>> + Send;
-
-    /// emit an event on Hypercore::append
-    fn on_append_subscribe(&self) -> impl Future<Output = Receiver<OnAppendEvent>>;
-    /// subscribe to events on `Hypercore::get(i)` for missing `i`
-    fn on_get_subscribe(&self) -> impl Future<Output = Receiver<(u64, Sender<()>)>>;
+    /// subscribe to core events
+    fn event_subscribe(&self) -> impl Future<Output = Receiver<EventMsg>>;
 }
 
 impl ReplicationMethods for SharedCore {
@@ -120,12 +114,8 @@ impl ReplicationMethods for SharedCore {
         }
     }
 
-    fn on_append_subscribe(&self) -> impl Future<Output = Receiver<OnAppendEvent>> {
-        async move { self.0.lock().await.on_append_subscribe() }
-    }
-
-    fn on_get_subscribe(&self) -> impl Future<Output = Receiver<(u64, Sender<()>)>> {
-        async move { self.0.lock().await.on_get_subscribe() }
+    fn event_subscribe(&self) -> impl Future<Output = Receiver<EventMsg>> {
+        async move { self.0.lock().await.event_subscribe() }
     }
 }
 
