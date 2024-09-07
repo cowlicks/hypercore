@@ -285,8 +285,7 @@ impl Hypercore {
             None => return Err(HypercoreError::NotWritable),
         };
 
-        let (start, length) = if !batch.as_ref().is_empty() {
-            let start = self.tree.length;
+        if !batch.as_ref().is_empty() {
             // Create a changeset for the tree
             let mut changeset = self.tree.changeset();
             let mut batch_length: usize = 0;
@@ -332,16 +331,7 @@ impl Hypercore {
 
             let _ = self.events.send(OnDataUpgradeEvent {});
             let _ = self.events.send(OnHaveEvent::from(&bitfield_update));
-
-            Ok::<(u64, u64), HypercoreError>((start, batch_length.try_into().unwrap()))
-        } else {
-            Ok((self.tree.length, 0))
-        }?;
-
-        let out = AppendOutcome {
-            length: self.tree.length,
-            byte_length: self.tree.byte_length,
-        };
+        }
 
         // Return the new value
         Ok(AppendOutcome {

@@ -1,5 +1,5 @@
 //! events related to replication
-use crate::{common::BitfieldUpdate, AppendOutcome, DataBlock, HypercoreError};
+use crate::{common::BitfieldUpdate, HypercoreError};
 use tokio::sync::broadcast;
 
 static MAX_EVENT_QUEUE_CAPACITY: usize = 32;
