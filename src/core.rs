@@ -15,7 +15,7 @@ use crate::{
     crypto::{generate_signing_key, PartialKeypair},
     data::BlockStore,
     oplog::{Header, Oplog, MAX_OPLOG_ENTRIES_BYTE_SIZE},
-    replication::events::{EventMsg, Events, OnAppendEvent},
+    replication::events::{EventMsg, Events, OnDataUpgradeEvent, OnHaveEvent},
     storage::Storage,
     tree::{MerkleTree, MerkleTreeChangeset},
     RequestBlock, RequestSeek, RequestUpgrade,
@@ -329,6 +329,10 @@ impl Hypercore {
             if self.should_flush_bitfield_and_tree_and_oplog() {
                 self.flush_bitfield_and_tree_and_oplog(false).await?;
             }
+
+            let _ = self.events.send(OnDataUpgradeEvent {});
+            let _ = self.events.send(OnHaveEvent::from(&bitfield_update));
+
             Ok::<(u64, u64), HypercoreError>((start, batch_length.try_into().unwrap()))
         } else {
             Ok((self.tree.length, 0))
@@ -338,14 +342,6 @@ impl Hypercore {
             length: self.tree.length,
             byte_length: self.tree.byte_length,
         };
-        // NB: send() returns an error when there are no receivers. Which is the case when there is
-        // no replication. We ignore the error. No recievers is ok.
-        #[cfg(feature = "tokio")]
-        let _ = self.events.send(OnAppendEvent {
-            append_outcome: out,
-            start,
-            length,
-        });
 
         // Return the new value
         Ok(AppendOutcome {
@@ -561,12 +557,12 @@ impl Hypercore {
         self.storage.flush_infos(&outcome.infos_to_flush).await?;
         self.header = outcome.header;
 
-        if let Some(bitfield_update) = bitfield_update {
+        if let Some(bitfield_update) = &bitfield_update {
             // Write to bitfield
-            self.bitfield.update(&bitfield_update);
+            self.bitfield.update(bitfield_update);
 
             // Contiguous length is known only now
-            update_contiguous_length(&mut self.header, &self.bitfield, &bitfield_update);
+            update_contiguous_length(&mut self.header, &self.bitfield, bitfield_update);
         }
 
         // Commit changeset to in-memory tree
@@ -575,6 +571,15 @@ impl Hypercore {
         // Now ready to flush
         if self.should_flush_bitfield_and_tree_and_oplog() {
             self.flush_bitfield_and_tree_and_oplog(false).await?;
+        }
+
+        // TODO
+        if proof.upgrade.is_some() {
+            let _ = self.events.send(OnDataUpgradeEvent {});
+        }
+
+        if let Some(ref bitfield) = bitfield_update {
+            let _ = self.events.send(OnHaveEvent::from(bitfield));
         }
         Ok(true)
     }
