@@ -83,6 +83,7 @@ pub struct DataBlock {
     /// Data block value in bytes
     pub value: Vec<u8>,
     /// TODO: document
+    /// Nodes of the MerkelTree?
     pub nodes: Vec<Node>,
 }
 
