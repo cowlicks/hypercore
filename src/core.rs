@@ -345,8 +345,8 @@ impl Hypercore {
         self.events.channel.subscribe()
     }
 
-    /// Read value at given index, if any.
-    #[instrument(skip(self))]
+    /// Check if core has the block at the given `index` locally
+    #[instrument(ret, skip(self))]
     pub fn has(&self, index: u64) -> bool {
         self.bitfield.get(index)
     }
