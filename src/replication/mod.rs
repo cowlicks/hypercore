@@ -134,6 +134,9 @@ pub enum CoreMethodsError {
 
 /// Things that consume Hypercore's can provide this interface to them
 pub trait CoreMethods: CoreInfo {
+    /// Check if the core has the block at the given index locally
+    fn has(&self, index: u64) -> impl Future<Output = bool> + Send;
+
     /// get a block
     fn get(
         &self,
@@ -147,6 +150,12 @@ pub trait CoreMethods: CoreInfo {
 }
 
 impl CoreMethods for SharedCore {
+    fn has(&self, index: u64) -> impl Future<Output = bool> + Send {
+        async move {
+            let core = self.0.lock().await;
+            core.has(index)
+        }
+    }
     fn get(
         &self,
         index: u64,
