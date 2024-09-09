@@ -346,6 +346,12 @@ impl Hypercore {
     }
 
     /// Read value at given index, if any.
+    #[instrument(skip(self))]
+    pub fn has(&self, index: u64) -> bool {
+        self.bitfield.get(index)
+    }
+
+    /// Read value at given index, if any.
     #[instrument(err, skip(self))]
     pub async fn get(&mut self, index: u64) -> Result<Option<Vec<u8>>, HypercoreError> {
         if !self.bitfield.get(index) {
