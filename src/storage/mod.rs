@@ -159,10 +159,12 @@ impl Storage {
                                     instruction.index,
                                 ))
                             } else {
+                                crate::backtrace!();
+                                //panic!();
                                 Err(HypercoreError::InvalidOperation {
                                     // TODO why?
                                     context: format!(
-                                        "Could not read bytes [{offset}] to [{end:?}]. Total store length [{length}]. Sore kind [{current_store}]",
+                                        "Could not read bytes [{offset}] to [{end:?}]. Total store length [{length}]. Store kind [{current_store}]",
                                     ),
                                 })
                             }
