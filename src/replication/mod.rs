@@ -6,7 +6,7 @@ use crate::{
     RequestSeek, RequestUpgrade,
 };
 
-use events::EventMsg;
+pub use events::Event;
 
 use tokio::sync::{broadcast::Receiver, Mutex};
 
@@ -82,7 +82,7 @@ pub trait ReplicationMethods: CoreInfo + Send {
         upgrade: Option<RequestUpgrade>,
     ) -> impl Future<Output = Result<Option<Proof>, ReplicationMethodsError>> + Send;
     /// subscribe to core events
-    fn event_subscribe(&self) -> impl Future<Output = Receiver<EventMsg>>;
+    fn event_subscribe(&self) -> impl Future<Output = Receiver<Event>>;
 }
 
 impl ReplicationMethods for SharedCore {
@@ -119,7 +119,7 @@ impl ReplicationMethods for SharedCore {
         }
     }
 
-    fn event_subscribe(&self) -> impl Future<Output = Receiver<EventMsg>> {
+    fn event_subscribe(&self) -> impl Future<Output = Receiver<Event>> {
         async move { self.0.lock().await.event_subscribe() }
     }
 }
