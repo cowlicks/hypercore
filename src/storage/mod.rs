@@ -159,6 +159,8 @@ impl Storage {
                                     instruction.index,
                                 ))
                             } else {
+                                crate::backtrace!();
+                                //panic!();
                                 Err(HypercoreError::InvalidOperation {
                                     // TODO why?
                                     context: format!(
