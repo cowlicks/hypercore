@@ -15,7 +15,7 @@ use crate::{
     crypto::{generate_signing_key, PartialKeypair},
     data::BlockStore,
     oplog::{Header, Oplog, MAX_OPLOG_ENTRIES_BYTE_SIZE},
-    replication::events::{EventMsg, Events, OnDataUpgradeEvent, OnHaveEvent},
+    replication::events::{DataUpgrade, Event, Events, Have},
     storage::Storage,
     tree::{MerkleTree, MerkleTreeChangeset},
     RequestBlock, RequestSeek, RequestUpgrade,
@@ -329,8 +329,8 @@ impl Hypercore {
                 self.flush_bitfield_and_tree_and_oplog(false).await?;
             }
 
-            let _ = self.events.send(OnDataUpgradeEvent {});
-            let _ = self.events.send(OnHaveEvent::from(&bitfield_update));
+            let _ = self.events.send(DataUpgrade {});
+            let _ = self.events.send(Have::from(&bitfield_update));
         }
 
         // Return the new value
@@ -341,7 +341,7 @@ impl Hypercore {
     }
 
     /// Subscribe to core events relevant to replication
-    pub fn event_subscribe(&self) -> Receiver<EventMsg> {
+    pub fn event_subscribe(&self) -> Receiver<Event> {
         self.events.channel.subscribe()
     }
 
@@ -571,11 +571,11 @@ impl Hypercore {
 
         // TODO
         if proof.upgrade.is_some() {
-            let _ = self.events.send(OnDataUpgradeEvent {});
+            let _ = self.events.send(DataUpgrade {});
         }
 
         if let Some(ref bitfield) = bitfield_update {
-            let _ = self.events.send(OnHaveEvent::from(bitfield));
+            let _ = self.events.send(Have::from(bitfield));
         }
         Ok(true)
     }
