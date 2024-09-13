@@ -142,10 +142,17 @@ pub trait CoreMethods: CoreInfo {
         &self,
         index: u64,
     ) -> impl Future<Output = Result<Option<Vec<u8>>, CoreMethodsError>> + Send;
+
     /// Append data to the core
     fn append(
         &self,
         data: &[u8],
+    ) -> impl Future<Output = Result<AppendOutcome, CoreMethodsError>> + Send;
+
+    /// Append a batch of data to the core
+    fn append_batch<A: AsRef<[u8]>, B: AsRef<[A]> + Send>(
+        &self,
+        batch: B,
     ) -> impl Future<Output = Result<AppendOutcome, CoreMethodsError>> + Send;
 }
 
@@ -173,6 +180,16 @@ impl CoreMethods for SharedCore {
         async move {
             let mut core = self.0.lock().await;
             Ok(core.append(data).await?)
+        }
+    }
+
+    fn append_batch<A: AsRef<[u8]>, B: AsRef<[A]> + Send>(
+        &self,
+        batch: B,
+    ) -> impl Future<Output = Result<AppendOutcome, CoreMethodsError>> + Send {
+        async move {
+            let mut core = self.0.lock().await;
+            Ok(core.append_batch(batch).await?)
         }
     }
 }
