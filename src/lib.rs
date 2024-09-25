@@ -95,9 +95,27 @@ pub use crate::common::{
 };
 pub use crate::core::{AppendOutcome, Hypercore, Info};
 pub use crate::crypto::{generate_signing_key, sign, verify, PartialKeypair};
-pub use crate::replication::events::EventMsg;
 pub use crate::storage::{Storage, StorageTraits};
+
 pub use ed25519_dalek::{
     SecretKey, Signature, SigningKey, VerifyingKey, KEYPAIR_LENGTH, PUBLIC_KEY_LENGTH,
     SECRET_KEY_LENGTH,
 };
+
+macro_rules! backtrace {
+    () => {
+        crate::backtrace!(15);
+    };
+    ($n_frames:expr) => {
+        let frames: Vec<String> = format!("{}", std::backtrace::Backtrace::force_capture())
+            .split('\n')
+            .map(String::from)
+            .take($n_frames)
+            .collect();
+        let trace = frames.join("\n");
+
+        println!("Custom backtrace:\n{trace}");
+    };
+}
+
+pub(crate) use backtrace;
