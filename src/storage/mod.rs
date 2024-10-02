@@ -149,9 +149,8 @@ impl Storage {
                             &buf,
                         )),
                         Err(RandomAccessError::OutOfBounds {
-                            offset,
-                            end,
                             length,
+                            ..
                         }) => {
                             if instruction.allow_miss {
                                 Ok(StoreInfo::new_content_miss(
