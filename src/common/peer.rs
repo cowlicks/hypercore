@@ -1,9 +1,12 @@
 //! Types needed for passing information with with peers.
 //! hypercore-protocol-rs uses these types and wraps them
 //! into wire messages.
-use crate::Node;
+use std::fmt::Display;
 
-#[derive(Debug, Clone, PartialEq)]
+use crate::Node;
+use serde::Serialize;
+
+#[derive(Serialize, Debug, Clone, PartialEq)]
 /// Request of a DataBlock or DataHash from peer
 pub struct RequestBlock {
     /// Hypercore index
@@ -12,14 +15,14 @@ pub struct RequestBlock {
     pub nodes: u64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize, Debug, Clone, PartialEq)]
 /// Request of a DataSeek from peer
 pub struct RequestSeek {
     /// TODO: document
     pub bytes: u64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize, Debug, Clone, PartialEq)]
 /// Request of a DataUpgrade from peer
 pub struct RequestUpgrade {
     /// Hypercore start index
@@ -72,7 +75,7 @@ impl ValuelessProof {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize, Debug, Clone, PartialEq)]
 /// Block of data to peer
 pub struct DataBlock {
     /// Hypercore index
@@ -80,10 +83,11 @@ pub struct DataBlock {
     /// Data block value in bytes
     pub value: Vec<u8>,
     /// TODO: document
+    /// Nodes of the MerkelTree?
     pub nodes: Vec<Node>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize, Debug, Clone, PartialEq)]
 /// Data hash to peer
 pub struct DataHash {
     /// Hypercore index
@@ -92,7 +96,7 @@ pub struct DataHash {
     pub nodes: Vec<Node>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize, Debug, Clone, PartialEq)]
 /// TODO: Document
 pub struct DataSeek {
     /// TODO: Document
@@ -101,17 +105,42 @@ pub struct DataSeek {
     pub nodes: Vec<Node>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize, Clone, PartialEq)]
 /// TODO: Document
 pub struct DataUpgrade {
-    /// TODO: Document
+    /// starting block of this upgrade response
     pub start: u64,
-    /// TODO: Document
+    /// number of blocks in this upgrade response
     pub length: u64,
-    /// TODO: Document
+    /// the metadata nodes?
     pub nodes: Vec<Node>,
     /// TODO: Document
     pub additional_nodes: Vec<Node>,
     /// TODO: Document
     pub signature: Vec<u8>,
+}
+
+impl std::fmt::Debug for DataUpgrade {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DataUpgrade")
+            .field("start", &self.start)
+            .field("length", &self.length)
+            .field("nodes", &self.nodes)
+            .field("additional_nodes", &self.additional_nodes)
+            .field("signature", &self.signature.len())
+            .finish()
+    }
+}
+
+impl Display for DataUpgrade {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "DataUpgrade(start: {}, length: {}, nodes: {:?}, .., signature: {})",
+            self.start,
+            self.length,
+            self.nodes,
+            self.signature.len()
+        )
+    }
 }

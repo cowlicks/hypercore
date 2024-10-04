@@ -3,6 +3,8 @@ use ed25519_dalek::Signature;
 use futures::future::Either;
 use std::convert::TryFrom;
 use std::fmt::Debug;
+#[cfg(feature = "tokio")]
+use tokio::sync::broadcast::Receiver;
 use tracing::instrument;
 
 #[cfg(feature = "cache")]
@@ -13,6 +15,7 @@ use crate::{
     crypto::{generate_signing_key, PartialKeypair},
     data::BlockStore,
     oplog::{Header, Oplog, MAX_OPLOG_ENTRIES_BYTE_SIZE},
+    replication::events::{DataUpgrade, Event, Events, Have},
     storage::Storage,
     tree::{MerkleTree, MerkleTreeChangeset},
     RequestBlock, RequestSeek, RequestUpgrade,
@@ -48,10 +51,12 @@ pub struct Hypercore {
     pub(crate) bitfield: Bitfield,
     skip_flush_count: u8, // autoFlush in Javascript
     header: Header,
+    #[cfg(feature = "tokio")]
+    events: Events,
 }
 
 /// Response from append, matches that of the Javascript result
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AppendOutcome {
     /// Length of the hypercore after append
     pub length: u64,
@@ -247,6 +252,8 @@ impl Hypercore {
             bitfield,
             header,
             skip_flush_count: 0,
+            #[cfg(feature = "tokio")]
+            events: Events::new(),
         })
     }
 
@@ -321,6 +328,9 @@ impl Hypercore {
             if self.should_flush_bitfield_and_tree_and_oplog() {
                 self.flush_bitfield_and_tree_and_oplog(false).await?;
             }
+
+            let _ = self.events.send(DataUpgrade {});
+            let _ = self.events.send(Have::from(&bitfield_update));
         }
 
         // Return the new value
@@ -330,10 +340,31 @@ impl Hypercore {
         })
     }
 
+    /// Subscribe to core events relevant to replication
+    pub fn event_subscribe(&self) -> Receiver<Event> {
+        self.events.channel.subscribe()
+    }
+
+    /// Check if core has the block at the given `index` locally
+    #[instrument(ret, skip(self))]
+    pub fn has(&self, index: u64) -> bool {
+        self.bitfield.get(index)
+    }
+
     /// Read value at given index, if any.
     #[instrument(err, skip(self))]
     pub async fn get(&mut self, index: u64) -> Result<Option<Vec<u8>>, HypercoreError> {
         if !self.bitfield.get(index) {
+            // not in this core
+            // try getting it over the network
+            #[cfg(feature = "tokio")]
+            {
+                let mut rx = self.events.send_on_get(index);
+                //let res = rx.recv().await.unwrap();
+                tokio::spawn(async move {
+                    let _ = rx.recv().await;
+                });
+            }
             return Ok(None);
         }
 
@@ -522,12 +553,12 @@ impl Hypercore {
         self.storage.flush_infos(&outcome.infos_to_flush).await?;
         self.header = outcome.header;
 
-        if let Some(bitfield_update) = bitfield_update {
+        if let Some(bitfield_update) = &bitfield_update {
             // Write to bitfield
-            self.bitfield.update(&bitfield_update);
+            self.bitfield.update(bitfield_update);
 
             // Contiguous length is known only now
-            update_contiguous_length(&mut self.header, &self.bitfield, &bitfield_update);
+            update_contiguous_length(&mut self.header, &self.bitfield, bitfield_update);
         }
 
         // Commit changeset to in-memory tree
@@ -536,6 +567,15 @@ impl Hypercore {
         // Now ready to flush
         if self.should_flush_bitfield_and_tree_and_oplog() {
             self.flush_bitfield_and_tree_and_oplog(false).await?;
+        }
+
+        // TODO
+        if proof.upgrade.is_some() {
+            let _ = self.events.send(DataUpgrade {});
+        }
+
+        if let Some(ref bitfield) = bitfield_update {
+            let _ = self.events.send(Have::from(bitfield));
         }
         Ok(true)
     }

@@ -6,6 +6,7 @@ use std::convert::AsRef;
 use std::fmt::{self, Display};
 
 use crate::crypto::Hash;
+use serde::Serialize;
 
 /// Node byte range
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,14 +19,31 @@ pub(crate) struct NodeByteRange {
 // TODO: replace `hash: Vec<u8>` with `hash: Hash`. This requires patching /
 // rewriting the Blake2b crate to support `.from_bytes()` to serialize from
 // disk.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Clone, PartialEq, Eq)]
 pub struct Node {
+    /// TODO document me
     pub(crate) index: u64,
+    /// hash of the data in this node
     pub(crate) hash: Vec<u8>,
+    /// number of bytes of the data
     pub(crate) length: u64,
     pub(crate) parent: u64,
+    /// The data
     pub(crate) data: Option<Vec<u8>>,
     pub(crate) blank: bool,
+}
+
+impl std::fmt::Debug for Node {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Node")
+            .field("index", &self.index)
+            .field("hash", &format!("{:?}", &self.hash))
+            .field("length", &self.length)
+            .field("parent", &self.parent)
+            .field("data", &format!("{:?}", &self.data))
+            .field("blank", &self.blank)
+            .finish()
+    }
 }
 
 impl Node {

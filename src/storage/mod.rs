@@ -119,6 +119,7 @@ impl Storage {
     }
 
     /// Reads infos but retains them as a Vec
+    #[instrument(skip(self))]
     pub(crate) async fn read_infos_to_vec(
         &mut self,
         info_instructions: &[StoreInfoInstruction],
@@ -148,9 +149,8 @@ impl Storage {
                             &buf,
                         )),
                         Err(RandomAccessError::OutOfBounds {
-                            offset: _,
-                            end: _,
                             length,
+                            ..
                         }) => {
                             if instruction.allow_miss {
                                 Ok(StoreInfo::new_content_miss(
@@ -159,6 +159,7 @@ impl Storage {
                                 ))
                             } else {
                                 Err(HypercoreError::InvalidOperation {
+                                    // TODO why?
                                     context: format!(
                                         "Could not read from store {}, index {} / length {} is out of bounds for store length {}",
                                         current_store,
