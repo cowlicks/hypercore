@@ -127,12 +127,12 @@ impl Storage {
             return Ok(vec![]);
         }
         let mut current_store: Store = info_instructions[0].store.clone();
-        let mut storage = self.get_random_access(&current_store);
+        let mut storage = self.get_random_access_mut(&current_store);
         let mut infos: Vec<StoreInfo> = Vec::with_capacity(info_instructions.len());
         for instruction in info_instructions.iter() {
             if instruction.store != current_store {
                 current_store = instruction.store.clone();
-                storage = self.get_random_access(&current_store);
+                storage = self.get_random_access_mut(&current_store);
             }
             match instruction.info_type {
                 StoreInfoType::Content => {
@@ -193,11 +193,11 @@ impl Storage {
             return Ok(());
         }
         let mut current_store: Store = infos[0].store.clone();
-        let mut storage = self.get_random_access(&current_store);
+        let mut storage = self.get_random_access_mut(&current_store);
         for info in infos.iter() {
             if info.store != current_store {
                 current_store = info.store.clone();
-                storage = self.get_random_access(&current_store);
+                storage = self.get_random_access_mut(&current_store);
             }
             match info.info_type {
                 StoreInfoType::Content => {
@@ -233,7 +233,7 @@ impl Storage {
         Ok(())
     }
 
-    fn get_random_access(&mut self, store: &Store) -> &mut Box<dyn StorageTraits + Send> {
+    fn get_random_access_mut(&mut self, store: &Store) -> &mut Box<dyn StorageTraits + Send> {
         match store {
             Store::Tree => &mut self.tree,
             Store::Data => &mut self.data,
