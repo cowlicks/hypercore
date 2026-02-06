@@ -46,7 +46,7 @@ pub(crate) struct Hash {
 
 impl Hash {
     /// Hash a `Leaf` node.
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     pub(crate) fn from_leaf(data: &[u8]) -> Self {
         let size = u64_as_be(data.len() as u64);
 
@@ -61,7 +61,7 @@ impl Hash {
     }
 
     /// Hash two `Leaf` nodes hashes together to form a `Parent` hash.
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     pub(crate) fn from_hashes(left: &Node, right: &Node) -> Self {
         let (node1, node2) = if left.index <= right.index {
             (left, right)
@@ -84,7 +84,7 @@ impl Hash {
 
     /// Hash a public key. Useful to find the key you're looking for on a public
     /// network without leaking the key itself.
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     pub(crate) fn for_discovery_key(public_key: VerifyingKey) -> Self {
         let mut hasher =
             Blake2bMac::<U32>::new_with_salt_and_personal(public_key.as_bytes(), &[], &[]).unwrap();
@@ -96,7 +96,7 @@ impl Hash {
 
     /// Hash a vector of `Root` nodes.
     // Called `crypto.tree()` in the JS implementation.
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     pub(crate) fn from_roots(roots: &[impl AsRef<Node>]) -> Self {
         let mut hasher = Blake2b256::new();
         hasher.update(ROOT_TYPE);
