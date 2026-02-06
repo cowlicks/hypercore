@@ -206,7 +206,7 @@ impl Oplog {
     }
 
     pub(crate) fn update_header_with_changeset(
-        &mut self,
+        &self,
         changeset: &MerkleTreeChangeset,
         bitfield_update: Option<BitfieldUpdate>,
         header: &mut Header,

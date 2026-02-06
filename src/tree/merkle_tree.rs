@@ -168,7 +168,7 @@ impl MerkleTree {
 
     /// Get storage byte range of given hypercore index
     pub(crate) fn byte_range(
-        &mut self,
+        &self,
         hypercore_index: u64,
         infos: Option<&[StoreInfo]>,
     ) -> Result<Either<Box<[StoreInfoInstruction]>, NodeByteRange>, HypercoreError> {
@@ -216,7 +216,7 @@ impl MerkleTree {
 
     /// Get the byte offset given hypercore index
     pub(crate) fn byte_offset(
-        &mut self,
+        &self,
         hypercore_index: u64,
         infos: Option<&[StoreInfo]>,
     ) -> Result<Either<Box<[StoreInfoInstruction]>, u64>, HypercoreError> {
@@ -226,7 +226,7 @@ impl MerkleTree {
 
     /// Get the byte offset of hypercore index in a changeset
     pub(crate) fn byte_offset_in_changeset(
-        &mut self,
+        &self,
         hypercore_index: u64,
         changeset: &MerkleTreeChangeset,
         infos: Option<&[StoreInfo]>,
@@ -241,10 +241,9 @@ impl MerkleTree {
         let mut parent: Option<Node> = None;
         for node in &changeset.nodes {
             if node.index == iter.index() {
-                if is_right
-                    && let Some(parent) = parent {
-                        tree_offset += node.length - parent.length;
-                    }
+                if is_right && let Some(parent) = parent {
+                    tree_offset += node.length - parent.length;
+                }
                 parent = Some(node.clone());
                 is_right = iter.is_right();
                 iter.parent();
@@ -278,7 +277,7 @@ impl MerkleTree {
     }
 
     pub(crate) fn truncate(
-        &mut self,
+        &self,
         length: u64,
         fork: u64,
         infos: Option<&[StoreInfo]>,
@@ -409,17 +408,16 @@ impl MerkleTree {
                 sub_tree = indexed.index;
             }
         }
-        if !untrusted_sub_tree
-            && let Some(seek) = seek.as_ref() {
-                let index_or_instructions = self.seek_from_head(to, seek.bytes, &nodes)?;
-                sub_tree = match index_or_instructions {
-                    Either::Left(new_instructions) => {
-                        instructions.extend(new_instructions);
-                        return Ok(Either::Left(instructions.into_boxed_slice()));
-                    }
-                    Either::Right(index) => index,
-                };
-            }
+        if !untrusted_sub_tree && let Some(seek) = seek.as_ref() {
+            let index_or_instructions = self.seek_from_head(to, seek.bytes, &nodes)?;
+            sub_tree = match index_or_instructions {
+                Either::Left(new_instructions) => {
+                    instructions.extend(new_instructions);
+                    return Ok(Either::Left(instructions.into_boxed_slice()));
+                }
+                Either::Right(index) => index,
+            };
+        }
 
         if upgrade.is_some() {
             if let Either::Left(new_instructions) = self.upgrade_proof(
@@ -437,9 +435,9 @@ impl MerkleTree {
             if head > to
                 && let Either::Left(new_instructions) =
                     self.additional_upgrade_proof(to, head, &mut p, &nodes)?
-                {
-                    instructions.extend(new_instructions);
-                }
+            {
+                instructions.extend(new_instructions);
+            }
         }
 
         if instructions.is_empty() {
@@ -502,7 +500,7 @@ impl MerkleTree {
 
     /// Verifies a proof received from a peer.
     pub(crate) fn verify_proof(
-        &mut self,
+        &self,
         proof: &Proof,
         public_key: &VerifyingKey,
         infos: Option<&[StoreInfo]>,
@@ -524,9 +522,10 @@ impl MerkleTree {
                 unverified_block_root_node.as_ref(),
                 public_key,
                 &mut changeset,
-            )? {
-                unverified_block_root_node = None;
-            }
+            )?
+        {
+            unverified_block_root_node = None;
+        }
 
         if let Some(unverified_block_root_node) = unverified_block_root_node {
             let node_or_instruction =
@@ -558,7 +557,7 @@ impl MerkleTree {
 
     /// Attempts to get missing nodes from given index. NB: must be called in a loop.
     pub(crate) fn missing_nodes(
-        &mut self,
+        &self,
         index: u64,
         infos: Option<&[StoreInfo]>,
     ) -> Result<Either<Box<[StoreInfoInstruction]>, u64>, HypercoreError> {
@@ -690,7 +689,7 @@ impl MerkleTree {
     }
 
     fn byte_offset_from_index(
-        &mut self,
+        &self,
         index: u64,
         infos: Option<&[StoreInfo]>,
     ) -> Result<Either<Box<[StoreInfoInstruction]>, u64>, HypercoreError> {
@@ -1351,21 +1350,22 @@ fn verify_tree(
     let mut root: Option<Node> = None;
 
     if let Some(seek) = seek
-        && !seek.nodes.is_empty() {
-            let mut iter = flat_tree::Iterator::new(seek.nodes[0].index);
-            let mut q = NodeQueue::new(seek.nodes.clone(), None);
-            let node = q.shift(iter.index())?;
-            let mut current_root: Node = node.clone();
+        && !seek.nodes.is_empty()
+    {
+        let mut iter = flat_tree::Iterator::new(seek.nodes[0].index);
+        let mut q = NodeQueue::new(seek.nodes.clone(), None);
+        let node = q.shift(iter.index())?;
+        let mut current_root: Node = node.clone();
+        changeset.nodes.push(node);
+        while q.length > 0 {
+            let node = q.shift(iter.sibling())?;
+            let parent_node = parent_node(iter.parent(), &current_root, &node);
+            current_root = parent_node.clone();
             changeset.nodes.push(node);
-            while q.length > 0 {
-                let node = q.shift(iter.sibling())?;
-                let parent_node = parent_node(iter.parent(), &current_root, &node);
-                current_root = parent_node.clone();
-                changeset.nodes.push(node);
-                changeset.nodes.push(parent_node);
-            }
-            root = Some(current_root);
+            changeset.nodes.push(parent_node);
         }
+        root = Some(current_root);
+    }
 
     if let Some(untrusted_node) = untrusted_node {
         let mut iter = flat_tree::Iterator::new(untrusted_node.index);
