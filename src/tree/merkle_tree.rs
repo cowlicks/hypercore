@@ -333,7 +333,7 @@ impl MerkleTree {
     /// https://github.com/holepunchto/hypercore/blob/9ce03363cb8938dbab53baba7d7cc9dde0508a7e/lib/merkle-tree.js#L1181
     /// The implementation should be rewritten to make it clearer.
     pub(crate) fn create_valueless_proof(
-        &mut self,
+        &self,
         block: Option<&RequestBlock>,
         hash: Option<&RequestBlock>,
         seek: Option<&RequestSeek>,
@@ -1297,7 +1297,7 @@ impl MerkleTree {
     }
 
     fn infos_to_nodes(
-        &mut self,
+        &self,
         infos: Option<&[StoreInfo]>,
     ) -> Result<IntMap<Option<Node>>, HypercoreError> {
         match infos {
