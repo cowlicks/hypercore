@@ -241,11 +241,10 @@ impl MerkleTree {
         let mut parent: Option<Node> = None;
         for node in &changeset.nodes {
             if node.index == iter.index() {
-                if is_right {
-                    if let Some(parent) = parent {
+                if is_right
+                    && let Some(parent) = parent {
                         tree_offset += node.length - parent.length;
                     }
-                }
                 parent = Some(node.clone());
                 is_right = iter.is_right();
                 iter.parent();
@@ -410,8 +409,8 @@ impl MerkleTree {
                 sub_tree = indexed.index;
             }
         }
-        if !untrusted_sub_tree {
-            if let Some(seek) = seek.as_ref() {
+        if !untrusted_sub_tree
+            && let Some(seek) = seek.as_ref() {
                 let index_or_instructions = self.seek_from_head(to, seek.bytes, &nodes)?;
                 sub_tree = match index_or_instructions {
                     Either::Left(new_instructions) => {
@@ -421,7 +420,6 @@ impl MerkleTree {
                     Either::Right(index) => index,
                 };
             }
-        }
 
         if upgrade.is_some() {
             if let Either::Left(new_instructions) = self.upgrade_proof(
@@ -436,13 +434,12 @@ impl MerkleTree {
                 instructions.extend(new_instructions);
             }
 
-            if head > to {
-                if let Either::Left(new_instructions) =
+            if head > to
+                && let Either::Left(new_instructions) =
                     self.additional_upgrade_proof(to, head, &mut p, &nodes)?
                 {
                     instructions.extend(new_instructions);
                 }
-            }
         }
 
         if instructions.is_empty() {
@@ -520,8 +517,8 @@ impl MerkleTree {
             proof.seek.as_ref(),
             &mut changeset,
         )?;
-        if let Some(upgrade) = proof.upgrade.as_ref() {
-            if verify_upgrade(
+        if let Some(upgrade) = proof.upgrade.as_ref()
+            && verify_upgrade(
                 proof.fork,
                 upgrade,
                 unverified_block_root_node.as_ref(),
@@ -530,7 +527,6 @@ impl MerkleTree {
             )? {
                 unverified_block_root_node = None;
             }
-        }
 
         if let Some(unverified_block_root_node) = unverified_block_root_node {
             let node_or_instruction =
@@ -1354,8 +1350,8 @@ fn verify_tree(
 
     let mut root: Option<Node> = None;
 
-    if let Some(seek) = seek {
-        if !seek.nodes.is_empty() {
+    if let Some(seek) = seek
+        && !seek.nodes.is_empty() {
             let mut iter = flat_tree::Iterator::new(seek.nodes[0].index);
             let mut q = NodeQueue::new(seek.nodes.clone(), None);
             let node = q.shift(iter.index())?;
@@ -1370,7 +1366,6 @@ fn verify_tree(
             }
             root = Some(current_root);
         }
-    }
 
     if let Some(untrusted_node) = untrusted_node {
         let mut iter = flat_tree::Iterator::new(untrusted_node.index);
