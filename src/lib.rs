@@ -1,10 +1,21 @@
-#![forbid(unsafe_code, future_incompatible)]
-#![forbid(rust_2018_idioms, rust_2018_compatibility)]
-#![forbid(missing_debug_implementations)]
-#![forbid(missing_docs)]
-#![warn(unreachable_pub)]
+#![forbid(
+    unsafe_code,
+    future_incompatible,
+    rust_2018_idioms,
+    rust_2018_compatibility,
+    missing_debug_implementations,
+    missing_docs
+)]
 #![cfg_attr(test, deny(warnings))]
 #![doc(test(attr(deny(warnings))))]
+#![warn(
+    unreachable_pub,
+    redundant_lifetimes,
+    non_local_definitions,
+    clippy::needless_pass_by_value,
+    clippy::needless_pass_by_ref_mut,
+    clippy::enum_glob_use
+)]
 
 //! ## Introduction
 //!
