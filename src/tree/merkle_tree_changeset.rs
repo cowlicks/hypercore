@@ -2,8 +2,9 @@ use ed25519_dalek::{Signature, SigningKey, VerifyingKey};
 use std::convert::TryFrom;
 
 use crate::{
-    crypto::{signable_tree, verify, Hash},
-    sign, HypercoreError, Node,
+    HypercoreError, Node,
+    crypto::{Hash, signable_tree, verify},
+    sign,
 };
 
 /// Changeset for a `MerkleTree`. This allows to incrementally change a `MerkleTree` in two steps:

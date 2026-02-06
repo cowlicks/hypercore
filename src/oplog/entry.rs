@@ -1,9 +1,9 @@
 use compact_encoding::{
-    map_decode, map_encode, sum_encoded_size, take_array, take_array_mut, write_array,
-    CompactEncoding, EncodingError,
+    CompactEncoding, EncodingError, map_decode, map_encode, sum_encoded_size, take_array,
+    take_array_mut, write_array,
 };
 
-use crate::{common::BitfieldUpdate, Node};
+use crate::{Node, common::BitfieldUpdate};
 
 /// Entry tree upgrade
 #[derive(Debug)]

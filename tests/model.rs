@@ -99,11 +99,7 @@ async fn assert_implementation_matches_model(ops: Vec<Op>) -> bool {
                 let start = {
                     let result = model.len() as u64 / len_divisor_for_start as u64;
                     if result == model.len() as u64 {
-                        if !model.is_empty() {
-                            result - 1
-                        } else {
-                            0
-                        }
+                        if !model.is_empty() { result - 1 } else { 0 }
                     } else {
                         result
                     }

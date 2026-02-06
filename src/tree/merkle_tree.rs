@@ -1,5 +1,5 @@
 use compact_encoding::{
-    as_array, map_decode, to_encoded_bytes, EncodingError, FixedWidthEncoding, FixedWidthU64,
+    EncodingError, FixedWidthEncoding, FixedWidthU64, as_array, map_decode, to_encoded_bytes,
 };
 use ed25519_dalek::Signature;
 use futures::future::Either;
@@ -14,11 +14,11 @@ use crate::common::{HypercoreError, NodeByteRange, Proof, ValuelessProof};
 use crate::crypto::Hash;
 use crate::oplog::HeaderTree;
 use crate::{
-    common::{StoreInfo, StoreInfoInstruction},
-    Node, VerifyingKey,
+    DataBlock, DataHash, DataSeek, DataUpgrade, RequestBlock, RequestSeek, RequestUpgrade, Store,
 };
 use crate::{
-    DataBlock, DataHash, DataSeek, DataUpgrade, RequestBlock, RequestSeek, RequestUpgrade, Store,
+    Node, VerifyingKey,
+    common::{StoreInfo, StoreInfoInstruction},
 };
 
 use super::MerkleTreeChangeset;
@@ -1474,7 +1474,7 @@ fn index_from_info(info: &StoreInfo) -> u64 {
 fn node_from_bytes(index: &u64, data: &[u8]) -> Result<Node, HypercoreError> {
     let len_buf = &data[..8];
     let hash = &data[8..];
-    let len = map_decode!(len_buf, [FixedWidthU64<'_>]).0 .0;
+    let len = map_decode!(len_buf, [FixedWidthU64<'_>]).0.0;
     Ok(Node::new(*index, hash.to_vec(), len))
 }
 

@@ -1,6 +1,6 @@
 use compact_encoding::{
-    as_array_mut, get_slices_checked, get_slices_mut_checked, map_decode, take_array_mut,
-    CompactEncoding, FixedWidthEncoding, FixedWidthU32,
+    CompactEncoding, FixedWidthEncoding, FixedWidthU32, as_array_mut, get_slices_checked,
+    get_slices_mut_checked, map_decode, take_array_mut,
 };
 use futures::future::Either;
 use std::convert::{TryFrom, TryInto};
@@ -412,7 +412,9 @@ impl Oplog {
         let calculated_checksum = crc32fast::hash(to_hash);
         if calculated_checksum != stored_checksum {
             return Err(HypercoreError::InvalidChecksum {
-                context: format!("Calculated signature [{calculated_checksum}] does not match oplog signature [{stored_checksum}]"),
+                context: format!(
+                    "Calculated signature [{calculated_checksum}] does not match oplog signature [{stored_checksum}]"
+                ),
             });
         };
         Ok(Some(ValidateLeaderOutcome {

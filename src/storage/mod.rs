@@ -11,8 +11,8 @@ use std::path::PathBuf;
 use tracing::instrument;
 
 use crate::{
-    common::{Store, StoreInfo, StoreInfoInstruction, StoreInfoType},
     HypercoreError,
+    common::{Store, StoreInfo, StoreInfoInstruction, StoreInfoType},
 };
 
 /// Supertrait for Storage
@@ -157,10 +157,7 @@ impl Storage {
                                 Err(HypercoreError::InvalidOperation {
                                     context: format!(
                                         "Could not read from store {}, index {} / length {} is out of bounds for store length {}",
-                                        current_store,
-                                        instruction.index,
-                                        read_length,
-                                        length
+                                        current_store, instruction.index, read_length, length
                                     ),
                                 })
                             }

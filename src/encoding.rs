@@ -1,11 +1,11 @@
 //! Hypercore-specific compact encodings
 use crate::{
-    crypto::{Manifest, ManifestSigner},
     DataBlock, DataHash, DataSeek, DataUpgrade, Node, RequestBlock, RequestSeek, RequestUpgrade,
+    crypto::{Manifest, ManifestSigner},
 };
 use compact_encoding::{
-    as_array, encode_bytes_fixed, encoded_size_usize, map_decode, map_encode, sum_encoded_size,
-    take_array, write_slice, CompactEncoding, EncodingError, EncodingErrorKind, VecEncodable,
+    CompactEncoding, EncodingError, EncodingErrorKind, VecEncodable, as_array, encode_bytes_fixed,
+    encoded_size_usize, map_decode, map_encode, sum_encoded_size, take_array, write_slice,
 };
 
 impl CompactEncoding for Node {

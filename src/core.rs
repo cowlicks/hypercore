@@ -8,14 +8,14 @@ use tracing::instrument;
 #[cfg(feature = "cache")]
 use crate::common::cache::CacheOptions;
 use crate::{
+    RequestBlock, RequestSeek, RequestUpgrade,
     bitfield::Bitfield,
     common::{BitfieldUpdate, HypercoreError, NodeByteRange, Proof, StoreInfo, ValuelessProof},
-    crypto::{generate_signing_key, PartialKeypair},
+    crypto::{PartialKeypair, generate_signing_key},
     data::BlockStore,
-    oplog::{Header, Oplog, MAX_OPLOG_ENTRIES_BYTE_SIZE},
+    oplog::{Header, MAX_OPLOG_ENTRIES_BYTE_SIZE, Oplog},
     storage::Storage,
     tree::{MerkleTree, MerkleTreeChangeset},
-    RequestBlock, RequestSeek, RequestUpgrade,
 };
 
 #[derive(Debug)]
@@ -884,8 +884,8 @@ pub(crate) mod tests {
     }
 
     #[async_std::test]
-    async fn core_create_proof_block_and_upgrade_from_existing_state_with_additional(
-    ) -> Result<(), HypercoreError> {
+    async fn core_create_proof_block_and_upgrade_from_existing_state_with_additional()
+    -> Result<(), HypercoreError> {
         let mut hypercore = create_hypercore_with_data(10).await?;
         let proof = hypercore
             .create_proof(
@@ -1084,10 +1084,12 @@ pub(crate) mod tests {
             )
             .await?
             .unwrap();
-        assert!(hypercore_clone
-            .verify_and_apply_proof(&proof)
-            .await
-            .is_err());
+        assert!(
+            hypercore_clone
+                .verify_and_apply_proof(&proof)
+                .await
+                .is_err()
+        );
         Ok(())
     }
 

@@ -1,9 +1,9 @@
 use blake2::{
-    digest::{generic_array::GenericArray, typenum::U32, FixedOutput},
     Blake2b, Blake2bMac, Digest,
+    digest::{FixedOutput, generic_array::GenericArray, typenum::U32},
 };
 use byteorder::{BigEndian, WriteBytesExt};
-use compact_encoding::{as_array, to_encoded_bytes, EncodingError, FixedWidthEncoding};
+use compact_encoding::{EncodingError, FixedWidthEncoding, as_array, to_encoded_bytes};
 use ed25519_dalek::VerifyingKey;
 use merkle_tree_stream::Node as NodeTrait;
 use std::convert::AsRef;

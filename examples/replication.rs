@@ -99,10 +99,12 @@ async fn replicate_index(
         .expect("Creating proof error")
         .expect("Could not get proof");
     // Then the proof is verified and applied to the replicated party.
-    assert!(replicated_hypercore
-        .verify_and_apply_proof(&proof)
-        .await
-        .expect("Verifying and applying proof failed"));
+    assert!(
+        replicated_hypercore
+            .verify_and_apply_proof(&proof)
+            .await
+            .expect("Verifying and applying proof failed")
+    );
 }
 
 fn format_res(res: Result<Option<Vec<u8>>, HypercoreError>) -> String {

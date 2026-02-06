@@ -1,7 +1,7 @@
-use super::fixed::{FixedBitfield, FIXED_BITFIELD_BITS_LENGTH, FIXED_BITFIELD_LENGTH};
+use super::fixed::{FIXED_BITFIELD_BITS_LENGTH, FIXED_BITFIELD_LENGTH, FixedBitfield};
 use crate::{
-    common::{BitfieldUpdate, StoreInfo, StoreInfoInstruction, StoreInfoType},
     Store,
+    common::{BitfieldUpdate, StoreInfo, StoreInfoInstruction, StoreInfoType},
 };
 use futures::future::Either;
 use std::{cell::RefCell, convert::TryInto};
