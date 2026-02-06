@@ -177,9 +177,10 @@ impl DynamicBitfield {
 
             // To keep the common case fast, first try the same page as the position
             if let Some(p) = self.pages.get(first_page)
-                && let Some(index) = p.borrow().index_of(value, first_index as u32) {
-                    return Some(first_page * DYNAMIC_BITFIELD_PAGE_SIZE as u64 + index as u64);
-                };
+                && let Some(index) = p.borrow().index_of(value, first_index as u32)
+            {
+                return Some(first_page * DYNAMIC_BITFIELD_PAGE_SIZE as u64 + index as u64);
+            };
 
             // It wasn't found on the first page, now get the keys that are bigger
             // than the given index and sort them.
@@ -187,9 +188,10 @@ impl DynamicBitfield {
             keys.sort();
             for key in keys {
                 if let Some(p) = self.pages.get(*key)
-                    && let Some(index) = p.borrow().index_of(value, 0) {
-                        return Some(key * DYNAMIC_BITFIELD_PAGE_SIZE as u64 + index as u64);
-                    };
+                    && let Some(index) = p.borrow().index_of(value, 0)
+                {
+                    return Some(key * DYNAMIC_BITFIELD_PAGE_SIZE as u64 + index as u64);
+                };
             }
         } else {
             // Searching for the false value is easier as it is automatically hit on
@@ -222,9 +224,10 @@ impl DynamicBitfield {
 
             // To keep the common case fast, first try the same page as the position
             if let Some(p) = self.pages.get(last_page)
-                && let Some(index) = p.borrow().last_index_of(value, last_index as u32) {
-                    return Some(last_page * DYNAMIC_BITFIELD_PAGE_SIZE as u64 + index as u64);
-                };
+                && let Some(index) = p.borrow().last_index_of(value, last_index as u32)
+            {
+                return Some(last_page * DYNAMIC_BITFIELD_PAGE_SIZE as u64 + index as u64);
+            };
 
             // It wasn't found on the last page, now get the keys that are smaller
             // than the given index and sort them.
@@ -237,9 +240,9 @@ impl DynamicBitfield {
                     && let Some(index) = p
                         .borrow()
                         .last_index_of(value, FIXED_BITFIELD_BITS_LENGTH as u32 - 1)
-                    {
-                        return Some(key * DYNAMIC_BITFIELD_PAGE_SIZE as u64 + index as u64);
-                    };
+                {
+                    return Some(key * DYNAMIC_BITFIELD_PAGE_SIZE as u64 + index as u64);
+                };
             }
         } else {
             // Searching for the false value is easier as it is automatically hit on

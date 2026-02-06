@@ -1,4 +1,4 @@
-//! External interface for replication
+//! Hypercore to Hypercore replication
 pub mod events;
 #[cfg(feature = "shared-core")]
 pub mod shared_core;
