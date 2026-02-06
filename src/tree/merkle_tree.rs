@@ -793,11 +793,10 @@ impl MerkleTree {
     ) -> Result<Either<StoreInfoInstruction, Option<Node>>, HypercoreError> {
         // First check the cache
         #[cfg(feature = "cache")]
-        if let Some(node_cache) = &self.node_cache {
-            if let Some(node) = node_cache.get(&index) {
+        if let Some(node_cache) = &self.node_cache
+            && let Some(node) = node_cache.get(&index) {
                 return Ok(Either::Right(Some(node)));
             }
-        }
 
         // Then check if unflushed has the node
         if let Some(node) = self.unflushed.get(index) {
@@ -1303,11 +1302,10 @@ impl MerkleTree {
                     if !info.miss {
                         let node = node_from_bytes(&index, info.data.as_ref().unwrap())?;
                         #[cfg(feature = "cache")]
-                        if !node.blank {
-                            if let Some(node_cache) = &self.node_cache {
+                        if !node.blank
+                            && let Some(node_cache) = &self.node_cache {
                                 node_cache.insert(node.index, node.clone())
                             }
-                        }
                         nodes.insert(index, Some(node));
                     } else {
                         nodes.insert(index, None);
