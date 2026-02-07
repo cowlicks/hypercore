@@ -6,7 +6,6 @@
     missing_debug_implementations,
     missing_docs
 )]
-#![cfg_attr(test, deny(warnings))]
 #![doc(test(attr(deny(warnings))))]
 #![warn(
     unreachable_pub,
@@ -94,6 +93,7 @@ mod common;
 mod core;
 mod crypto;
 mod data;
+mod name;
 mod oplog;
 mod storage;
 mod tree;

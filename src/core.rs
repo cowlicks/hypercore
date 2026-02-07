@@ -12,6 +12,7 @@ use crate::{
     common::{BitfieldUpdate, HypercoreError, NodeByteRange, StoreInfo, ValuelessProof},
     crypto::{PartialKeypair, generate_signing_key},
     data::BlockStore,
+    name::random_name,
     oplog::{Header, MAX_OPLOG_ENTRIES_BYTE_SIZE, Oplog},
     storage::Storage,
     tree::{MerkleTree, MerkleTreeChangeset},
@@ -25,6 +26,7 @@ pub(crate) struct HypercoreOptions {
     pub(crate) open: bool,
     #[cfg(feature = "cache")]
     pub(crate) node_cache_options: Option<CacheOptions>,
+    pub name: Option<String>,
 }
 
 impl HypercoreOptions {
@@ -34,6 +36,7 @@ impl HypercoreOptions {
             open: false,
             #[cfg(feature = "cache")]
             node_cache_options: None,
+            name: None,
         }
     }
 }
@@ -51,6 +54,9 @@ pub struct Hypercore {
     header: Header,
     #[cfg(feature = "replication")]
     events: crate::replication::events::Events,
+    #[cfg(feature = "replication")]
+    pub(crate) peers: Vec<crate::replication::Peer>,
+    pub(crate) name: String,
 }
 
 /// Response from append, matches that of the Javascript result
@@ -252,7 +258,14 @@ impl Hypercore {
             skip_flush_count: 0,
             #[cfg(feature = "replication")]
             events: crate::replication::events::Events::new(),
+            #[cfg(feature = "replication")]
+            peers: Default::default(),
+            name: options.name.unwrap_or_else(random_name),
         })
+    }
+    /// Short name for identifying this hypercore. Useful for debugging.
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     /// Gets basic info about the Hypercore
@@ -329,6 +342,9 @@ impl Hypercore {
 
             #[cfg(feature = "replication")]
             {
+                use tracing::trace;
+
+                trace!(bitfield_update = ?bitfield_update, "Hppercore.append_batch emit DataUpgrade & Have");
                 let _ = self.events.send(crate::replication::events::DataUpgrade {});
                 let _ = self
                     .events
@@ -362,6 +378,9 @@ impl Hypercore {
             #[cfg(feature = "replication")]
             // if not in this core, emit Event::Get(index)
             {
+                use tracing::trace;
+
+                trace!(index = index, "Hppercore emit 'get' event");
                 self.events.send_on_get(index);
             }
             return Ok(None);
