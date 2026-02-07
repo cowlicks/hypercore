@@ -8,17 +8,18 @@ use intmap::IntMap;
 use moka::sync::Cache;
 use std::convert::TryFrom;
 
+use crate::Store;
 #[cfg(feature = "cache")]
 use crate::common::cache::CacheOptions;
-use crate::common::{HypercoreError, NodeByteRange, Proof, ValuelessProof};
-use crate::crypto::Hash;
+use crate::common::{HypercoreError, NodeByteRange, ValuelessProof};
 use crate::oplog::HeaderTree;
 use crate::{
-    DataBlock, DataHash, DataSeek, DataUpgrade, RequestBlock, RequestSeek, RequestUpgrade, Store,
-};
-use crate::{
-    Node, VerifyingKey,
+    VerifyingKey,
     common::{StoreInfo, StoreInfoInstruction},
+};
+use hypercore_schema::{
+    DataBlock, DataHash, DataSeek, DataUpgrade, Hash, Node, Proof, RequestBlock, RequestSeek,
+    RequestUpgrade,
 };
 
 use super::MerkleTreeChangeset;
@@ -794,9 +795,10 @@ impl MerkleTree {
         // First check the cache
         #[cfg(feature = "cache")]
         if let Some(node_cache) = &self.node_cache
-            && let Some(node) = node_cache.get(&index) {
-                return Ok(Either::Right(Some(node)));
-            }
+            && let Some(node) = node_cache.get(&index)
+        {
+            return Ok(Either::Right(Some(node)));
+        }
 
         // Then check if unflushed has the node
         if let Some(node) = self.unflushed.get(index) {
@@ -1303,9 +1305,10 @@ impl MerkleTree {
                         let node = node_from_bytes(&index, info.data.as_ref().unwrap())?;
                         #[cfg(feature = "cache")]
                         if !node.blank
-                            && let Some(node_cache) = &self.node_cache {
-                                node_cache.insert(node.index, node.clone())
-                            }
+                            && let Some(node_cache) = &self.node_cache
+                        {
+                            node_cache.insert(node.index, node.clone())
+                        }
                         nodes.insert(index, Some(node));
                     } else {
                         nodes.insert(index, None);

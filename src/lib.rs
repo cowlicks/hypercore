@@ -101,10 +101,7 @@ mod tree;
 #[cfg(feature = "cache")]
 pub use crate::builder::CacheOptionsBuilder;
 pub use crate::builder::HypercoreBuilder;
-pub use crate::common::{
-    DataBlock, DataHash, DataSeek, DataUpgrade, HypercoreError, Node, Proof, RequestBlock,
-    RequestSeek, RequestUpgrade, Store,
-};
+pub use crate::common::{HypercoreError, Store};
 pub use crate::core::{AppendOutcome, Hypercore, Info};
 pub use crate::crypto::{PartialKeypair, generate_signing_key, sign, verify};
 pub use crate::storage::{Storage, StorageTraits};

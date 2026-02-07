@@ -8,15 +8,16 @@ use tracing::instrument;
 #[cfg(feature = "cache")]
 use crate::common::cache::CacheOptions;
 use crate::{
-    RequestBlock, RequestSeek, RequestUpgrade,
     bitfield::Bitfield,
-    common::{BitfieldUpdate, HypercoreError, NodeByteRange, Proof, StoreInfo, ValuelessProof},
+    common::{BitfieldUpdate, HypercoreError, NodeByteRange, StoreInfo, ValuelessProof},
     crypto::{PartialKeypair, generate_signing_key},
     data::BlockStore,
     oplog::{Header, MAX_OPLOG_ENTRIES_BYTE_SIZE, Oplog},
     storage::Storage,
     tree::{MerkleTree, MerkleTreeChangeset},
 };
+
+use hypercore_schema::{Proof, RequestBlock, RequestSeek, RequestUpgrade};
 
 #[derive(Debug)]
 pub(crate) struct HypercoreOptions {
