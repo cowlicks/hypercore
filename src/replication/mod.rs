@@ -6,10 +6,9 @@ pub mod shared_core;
 #[cfg(feature = "shared-core")]
 pub use shared_core::SharedCore;
 
-use crate::{
-    AppendOutcome, HypercoreError, Info, PartialKeypair, Proof, RequestBlock, RequestSeek,
-    RequestUpgrade,
-};
+use crate::{AppendOutcome, HypercoreError, Info, PartialKeypair};
+
+use hypercore_schema::{Proof, RequestBlock, RequestSeek, RequestUpgrade};
 
 pub use events::Event;
 

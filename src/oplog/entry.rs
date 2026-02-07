@@ -3,7 +3,8 @@ use compact_encoding::{
     take_array_mut, write_array,
 };
 
-use crate::{Node, common::BitfieldUpdate};
+use crate::common::BitfieldUpdate;
+use hypercore_schema::Node;
 
 /// Entry tree upgrade
 #[derive(Debug)]

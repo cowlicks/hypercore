@@ -7,7 +7,9 @@ use std::convert::{TryFrom, TryInto};
 
 use crate::common::{BitfieldUpdate, Store, StoreInfo, StoreInfoInstruction};
 use crate::tree::MerkleTreeChangeset;
-use crate::{HypercoreError, Node, PartialKeypair};
+use crate::{HypercoreError, PartialKeypair};
+
+use hypercore_schema::Node;
 
 pub(crate) mod entry;
 mod header;

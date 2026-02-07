@@ -8,15 +8,16 @@ use tracing::instrument;
 #[cfg(feature = "cache")]
 use crate::common::cache::CacheOptions;
 use crate::{
-    RequestBlock, RequestSeek, RequestUpgrade,
     bitfield::Bitfield,
-    common::{BitfieldUpdate, HypercoreError, NodeByteRange, Proof, StoreInfo, ValuelessProof},
+    common::{BitfieldUpdate, HypercoreError, NodeByteRange, StoreInfo, ValuelessProof},
     crypto::{PartialKeypair, generate_signing_key},
     data::BlockStore,
     oplog::{Header, MAX_OPLOG_ENTRIES_BYTE_SIZE, Oplog},
     storage::Storage,
     tree::{MerkleTree, MerkleTreeChangeset},
 };
+
+use hypercore_schema::{Proof, RequestBlock, RequestSeek, RequestUpgrade};
 
 #[derive(Debug)]
 pub(crate) struct HypercoreOptions {
@@ -328,6 +329,9 @@ impl Hypercore {
 
             #[cfg(feature = "replication")]
             {
+                use tracing::trace;
+
+                trace!(bitfield_update = ?bitfield_update, "Hppercore.append_batch emit DataUpgrade & Have");
                 let _ = self.events.send(crate::replication::events::DataUpgrade {});
                 let _ = self
                     .events
@@ -361,6 +365,9 @@ impl Hypercore {
             #[cfg(feature = "replication")]
             // if not in this core, emit Event::Get(index)
             {
+                use tracing::trace;
+
+                trace!(index = index, "Hppercore emit 'get' event");
                 self.events.send_on_get(index);
             }
             return Ok(None);

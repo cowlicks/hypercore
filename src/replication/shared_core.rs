@@ -1,11 +1,9 @@
 //! Implementation of a Hypercore that can have multiple owners. Along with implementations of all
 //! the hypercore traits.
-use crate::{
-    AppendOutcome, Hypercore, Info, PartialKeypair, Proof, RequestBlock, RequestSeek,
-    RequestUpgrade,
-};
+use crate::{AppendOutcome, Hypercore, Info, PartialKeypair};
 use async_broadcast::Receiver;
 use async_lock::Mutex;
+use hypercore_schema::{Proof, RequestBlock, RequestSeek, RequestUpgrade};
 use std::sync::Arc;
 
 use super::{
