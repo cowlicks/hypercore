@@ -18,7 +18,7 @@ categories = [
   "data-structures",
   "encoding",
 ]
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 blake2 = "0.10"
@@ -42,6 +42,10 @@ moka = { version = "0.12", optional = true, features = ["sync"] }
 async-broadcast = { version = "0.7.1", optional = true }
 async-lock = {version = "3.4.0", optional = true }
 
+[dependencies.hypercore_schema]
+version = "0.2.0"
+#path = "../hypercore_schema/"
+
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 random-access-disk = { version = "3", default-features = false }
 
@@ -61,7 +65,7 @@ test-log = { version = "0.2.11", default-features = false, features = ["trace"] 
 tracing-subscriber = { version = "0.3.16", features = ["env-filter", "fmt"] }
 
 [features]
-default = ["tokio", "sparse", "replication"]
+default = ["tokio", "sparse", "replication", "cache", "shared-core"]
 replication = ["dep:async-broadcast"]
 shared-core = ["replication", "dep:async-lock"]
 sparse = ["random-access-disk/sparse"]

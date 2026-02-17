@@ -33,12 +33,14 @@ async fn hypercore_new_with_key_pair() -> Result<()> {
 async fn hypercore_open_with_key_pair_error() -> Result<()> {
     let storage = Storage::new_memory().await?;
     let key_pair = get_test_key_pair();
-    assert!(HypercoreBuilder::new(storage)
-        .key_pair(key_pair)
-        .open(true)
-        .build()
-        .await
-        .is_err());
+    assert!(
+        HypercoreBuilder::new(storage)
+            .key_pair(key_pair)
+            .open(true)
+            .build()
+            .await
+            .is_err()
+    );
     Ok(())
 }
 

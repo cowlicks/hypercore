@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 #[cfg(feature = "async-std")]
 use criterion::async_executor::AsyncStdExecutor;
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use hypercore::{Hypercore, HypercoreBuilder, HypercoreError, Storage};
 use random_access_memory::RandomAccessMemory;
 

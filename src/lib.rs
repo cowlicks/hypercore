@@ -1,10 +1,20 @@
-#![forbid(unsafe_code, future_incompatible)]
-#![forbid(rust_2018_idioms, rust_2018_compatibility)]
-#![forbid(missing_debug_implementations)]
-#![forbid(missing_docs)]
-#![warn(unreachable_pub)]
-#![cfg_attr(test, deny(warnings))]
+#![forbid(
+    unsafe_code,
+    future_incompatible,
+    rust_2018_idioms,
+    rust_2018_compatibility,
+    missing_debug_implementations,
+    missing_docs
+)]
 #![doc(test(attr(deny(warnings))))]
+#![warn(
+    unreachable_pub,
+    redundant_lifetimes,
+    non_local_definitions,
+    clippy::needless_pass_by_value,
+    clippy::needless_pass_by_ref_mut,
+    clippy::enum_glob_use
+)]
 
 //! ## Introduction
 //!
@@ -83,6 +93,7 @@ mod common;
 mod core;
 mod crypto;
 mod data;
+mod name;
 mod oplog;
 mod storage;
 mod tree;
@@ -90,14 +101,11 @@ mod tree;
 #[cfg(feature = "cache")]
 pub use crate::builder::CacheOptionsBuilder;
 pub use crate::builder::HypercoreBuilder;
-pub use crate::common::{
-    DataBlock, DataHash, DataSeek, DataUpgrade, HypercoreError, Node, Proof, RequestBlock,
-    RequestSeek, RequestUpgrade, Store,
-};
+pub use crate::common::{HypercoreError, Store};
 pub use crate::core::{AppendOutcome, Hypercore, Info};
-pub use crate::crypto::{generate_signing_key, sign, verify, PartialKeypair};
+pub use crate::crypto::{PartialKeypair, generate_signing_key, sign, verify};
 pub use crate::storage::{Storage, StorageTraits};
 pub use ed25519_dalek::{
-    SecretKey, Signature, SigningKey, VerifyingKey, KEYPAIR_LENGTH, PUBLIC_KEY_LENGTH,
-    SECRET_KEY_LENGTH,
+    KEYPAIR_LENGTH, PUBLIC_KEY_LENGTH, SECRET_KEY_LENGTH, SecretKey, Signature, SigningKey,
+    VerifyingKey,
 };

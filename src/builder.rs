@@ -5,7 +5,7 @@ use tracing::instrument;
 
 #[cfg(feature = "cache")]
 use crate::common::cache::CacheOptions;
-use crate::{core::HypercoreOptions, Hypercore, HypercoreError, PartialKeypair, Storage};
+use crate::{Hypercore, HypercoreError, PartialKeypair, Storage, core::HypercoreOptions};
 
 /// Build CacheOptions.
 #[cfg(feature = "cache")]

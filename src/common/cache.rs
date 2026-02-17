@@ -1,7 +1,7 @@
 use moka::sync::Cache;
 use std::time::Duration;
 
-use crate::Node;
+use hypercore_schema::Node;
 
 // Default to 1 year of cache
 const DEFAULT_CACHE_TTL_SEC: u64 = 31556952;
