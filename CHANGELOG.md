@@ -11,7 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+* Added some new clippy lints to enforce.
+
 ### Changed
+
+* `get_random_access` was renamed to `get_random_access_mut`.
+* Bumped to 2024 edition.
+* Structs that were shared with `hypercore-protocol` have been moved into a separate crate: `hypercore_schema`.
+* Dependencies update
+* Some function signatures were changed that were pass-by-value or pass-by-ref that didn't need to be.
 
 ### Removed
 
