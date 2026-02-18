@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Removed
+
+
+
+## [0.16.0] - 2026-02-18
+
+### Added
+
 * Added some new clippy lints to enforce.
 
 ### Changed
@@ -498,6 +508,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ```
 
 <!-- next-url -->
-[Unreleased]: https://github.com/datrs/hypercore/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/datrs/hypercore/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/datrs/hypercore/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/datrs/hypercore/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/datrs/hypercore/compare/v0.14.0...v0.13.0
