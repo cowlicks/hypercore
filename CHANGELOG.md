@@ -11,6 +11,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+* Added some new clippy lints to enforce.
+
+### Changed
+
+* `get_random_access` was renamed to `get_random_access_mut`.
+* Bumped to 2024 edition.
+* Structs that were shared with `hypercore-protocol` have been moved into a separate crate: `hypercore_schema`.
+* Dependencies update
+* Some function signatures were changed that were pass-by-value or pass-by-ref that didn't need to be.
+
+### Removed
+
+
+
+## [0.15.0] - 2025-12-25
+
+### Added
+
 * More impl's of `CompactEncoding`.
 
 ### Changed
@@ -480,5 +498,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ```
 
 <!-- next-url -->
-[Unreleased]: https://github.com/datrs/hypercore/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/datrs/hypercore/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/datrs/hypercore/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/datrs/hypercore/compare/v0.14.0...v0.13.0

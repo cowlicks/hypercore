@@ -1,6 +1,6 @@
 //! events related to replication
-use crate::{common::BitfieldUpdate, HypercoreError};
-use async_broadcast::{broadcast, InactiveReceiver, Receiver, Sender};
+use crate::{HypercoreError, common::BitfieldUpdate};
+use async_broadcast::{InactiveReceiver, Receiver, Sender, broadcast};
 
 static MAX_EVENT_QUEUE_CAPACITY: usize = 32;
 

@@ -9,14 +9,15 @@ use tracing::instrument;
 use crate::common::cache::CacheOptions;
 use crate::{
     bitfield::Bitfield,
-    common::{BitfieldUpdate, HypercoreError, NodeByteRange, Proof, StoreInfo, ValuelessProof},
-    crypto::{generate_signing_key, PartialKeypair},
+    common::{BitfieldUpdate, HypercoreError, NodeByteRange, StoreInfo, ValuelessProof},
+    crypto::{PartialKeypair, generate_signing_key},
     data::BlockStore,
-    oplog::{Header, Oplog, MAX_OPLOG_ENTRIES_BYTE_SIZE},
+    oplog::{Header, MAX_OPLOG_ENTRIES_BYTE_SIZE, Oplog},
     storage::Storage,
     tree::{MerkleTree, MerkleTreeChangeset},
-    RequestBlock, RequestSeek, RequestUpgrade,
 };
+
+use hypercore_schema::{Proof, RequestBlock, RequestSeek, RequestUpgrade};
 
 #[derive(Debug)]
 pub(crate) struct HypercoreOptions {
@@ -328,6 +329,9 @@ impl Hypercore {
 
             #[cfg(feature = "replication")]
             {
+                use tracing::trace;
+
+                trace!(bitfield_update = ?bitfield_update, "Hppercore.append_batch emit DataUpgrade & Have");
                 let _ = self.events.send(crate::replication::events::DataUpgrade {});
                 let _ = self
                     .events
@@ -361,6 +365,9 @@ impl Hypercore {
             #[cfg(feature = "replication")]
             // if not in this core, emit Event::Get(index)
             {
+                use tracing::trace;
+
+                trace!(index = index, "Hppercore emit 'get' event");
                 self.events.send_on_get(index);
             }
             return Ok(None);
@@ -884,8 +891,8 @@ pub(crate) mod tests {
     }
 
     #[async_std::test]
-    async fn core_create_proof_block_and_upgrade_from_existing_state_with_additional(
-    ) -> Result<(), HypercoreError> {
+    async fn core_create_proof_block_and_upgrade_from_existing_state_with_additional()
+    -> Result<(), HypercoreError> {
         let mut hypercore = create_hypercore_with_data(10).await?;
         let proof = hypercore
             .create_proof(
@@ -1084,10 +1091,12 @@ pub(crate) mod tests {
             )
             .await?
             .unwrap();
-        assert!(hypercore_clone
-            .verify_and_apply_proof(&proof)
-            .await
-            .is_err());
+        assert!(
+            hypercore_clone
+                .verify_and_apply_proof(&proof)
+                .await
+                .is_err()
+        );
         Ok(())
     }
 

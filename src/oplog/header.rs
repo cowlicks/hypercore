@@ -1,13 +1,13 @@
 use compact_encoding::{
-    decode_usize, map_decode, take_array, write_array, CompactEncoding, EncodingError,
+    CompactEncoding, EncodingError, decode_usize, map_decode, take_array, write_array,
 };
 use compact_encoding::{map_encode, sum_encoded_size};
-use ed25519_dalek::{SigningKey, PUBLIC_KEY_LENGTH, SECRET_KEY_LENGTH};
+use ed25519_dalek::{PUBLIC_KEY_LENGTH, SECRET_KEY_LENGTH, SigningKey};
 
-use crate::crypto::default_signer_manifest;
-use crate::crypto::Manifest;
 use crate::PartialKeypair;
 use crate::VerifyingKey;
+use crate::crypto::Manifest;
+use crate::crypto::default_signer_manifest;
 
 /// Oplog header.
 #[derive(Debug, Clone)]
@@ -165,7 +165,7 @@ impl CompactEncoding for PartialKeypair {
             len => {
                 return Err(EncodingError::invalid_data(&format!(
                     "Incorrect public key length while decoding. length = [{len}] expected [{PUBLIC_KEY_LENGTH}]"
-                )))
+                )));
             }
         };
         let (sk_len, rest) = decode_usize(rest)?;
@@ -180,7 +180,7 @@ impl CompactEncoding for PartialKeypair {
             len => {
                 return Err(EncodingError::invalid_data(&format!(
                     "Incorrect secret key length while decoding. length = [{len}] expected [{FULL_SIGNING_KEY_LENGTH}]"
-                )))
+                )));
             }
         };
         Ok((PartialKeypair { public, secret }, rest))

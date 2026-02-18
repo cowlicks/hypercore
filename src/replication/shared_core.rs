@@ -1,12 +1,10 @@
 //! Implementation of a Hypercore that can have multiple owners. Along with implementations of all
 //! the hypercore traits.
-use crate::{
-    AppendOutcome, Hypercore, Info, PartialKeypair, Proof, RequestBlock, RequestSeek,
-    RequestUpgrade,
-};
+use crate::{AppendOutcome, Hypercore, Info, PartialKeypair};
 use async_broadcast::Receiver;
 use async_lock::Mutex;
-use std::{future::Future, sync::Arc};
+use hypercore_schema::{Proof, RequestBlock, RequestSeek, RequestUpgrade};
+use std::sync::Arc;
 
 use super::{
     CoreInfo, CoreMethods, CoreMethodsError, Event, ReplicationMethods, ReplicationMethodsError,
@@ -29,95 +27,63 @@ impl SharedCore {
 }
 
 impl CoreInfo for SharedCore {
-    fn info(&self) -> impl Future<Output = Info> + Send {
-        async move {
-            let core = &self.0.lock().await;
-            core.info()
-        }
+    async fn info(&self) -> Info {
+        let core = &self.0.lock().await;
+        core.info()
     }
 
-    fn key_pair(&self) -> impl Future<Output = PartialKeypair> + Send {
-        async move {
-            let core = &self.0.lock().await;
-            core.key_pair().clone()
-        }
+    async fn key_pair(&self) -> PartialKeypair {
+        let core = &self.0.lock().await;
+        core.key_pair().clone()
     }
 }
 
 impl ReplicationMethods for SharedCore {
-    fn verify_and_apply_proof(
-        &self,
-        proof: &Proof,
-    ) -> impl Future<Output = Result<bool, ReplicationMethodsError>> {
-        async move {
-            let mut core = self.0.lock().await;
-            Ok(core.verify_and_apply_proof(proof).await?)
-        }
+    async fn verify_and_apply_proof(&self, proof: &Proof) -> Result<bool, ReplicationMethodsError> {
+        Ok(self.0.lock().await.verify_and_apply_proof(proof).await?)
     }
 
-    fn missing_nodes(
-        &self,
-        index: u64,
-    ) -> impl Future<Output = Result<u64, ReplicationMethodsError>> {
-        async move {
-            let mut core = self.0.lock().await;
-            Ok(core.missing_nodes(index).await?)
-        }
+    async fn missing_nodes(&self, index: u64) -> Result<u64, ReplicationMethodsError> {
+        Ok(self.0.lock().await.missing_nodes(index).await?)
     }
 
-    fn create_proof(
+    async fn create_proof(
         &self,
         block: Option<RequestBlock>,
         hash: Option<RequestBlock>,
         seek: Option<RequestSeek>,
         upgrade: Option<RequestUpgrade>,
-    ) -> impl Future<Output = Result<Option<Proof>, ReplicationMethodsError>> {
-        async move {
-            let mut core = self.0.lock().await;
-            Ok(core.create_proof(block, hash, seek, upgrade).await?)
-        }
+    ) -> Result<Option<Proof>, ReplicationMethodsError> {
+        Ok(self
+            .0
+            .lock()
+            .await
+            .create_proof(block, hash, seek, upgrade)
+            .await?)
     }
 
-    fn event_subscribe(&self) -> impl Future<Output = Receiver<Event>> {
-        async move { self.0.lock().await.event_subscribe() }
+    async fn event_subscribe(&self) -> Receiver<Event> {
+        self.0.lock().await.event_subscribe()
     }
 }
 
 impl CoreMethods for SharedCore {
-    fn has(&self, index: u64) -> impl Future<Output = bool> + Send {
-        async move {
-            let core = self.0.lock().await;
-            core.has(index)
-        }
+    async fn has(&self, index: u64) -> bool {
+        self.0.lock().await.has(index)
     }
-    fn get(
-        &self,
-        index: u64,
-    ) -> impl Future<Output = Result<Option<Vec<u8>>, CoreMethodsError>> + Send {
-        async move {
-            let mut core = self.0.lock().await;
-            Ok(core.get(index).await?)
-        }
+    async fn get(&self, index: u64) -> Result<Option<Vec<u8>>, CoreMethodsError> {
+        Ok(self.0.lock().await.get(index).await?)
     }
 
-    fn append(
-        &self,
-        data: &[u8],
-    ) -> impl Future<Output = Result<AppendOutcome, CoreMethodsError>> + Send {
-        async move {
-            let mut core = self.0.lock().await;
-            Ok(core.append(data).await?)
-        }
+    async fn append(&self, data: &[u8]) -> Result<AppendOutcome, CoreMethodsError> {
+        Ok(self.0.lock().await.append(data).await?)
     }
 
-    fn append_batch<A: AsRef<[u8]>, B: AsRef<[A]> + Send>(
+    async fn append_batch<A: AsRef<[u8]>, B: AsRef<[A]> + Send>(
         &self,
         batch: B,
-    ) -> impl Future<Output = Result<AppendOutcome, CoreMethodsError>> + Send {
-        async move {
-            let mut core = self.0.lock().await;
-            Ok(core.append_batch(batch).await?)
-        }
+    ) -> Result<AppendOutcome, CoreMethodsError> {
+        Ok(self.0.lock().await.append_batch(batch).await?)
     }
 }
 

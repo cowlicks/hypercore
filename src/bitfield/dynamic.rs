@@ -1,7 +1,7 @@
-use super::fixed::{FixedBitfield, FIXED_BITFIELD_BITS_LENGTH, FIXED_BITFIELD_LENGTH};
+use super::fixed::{FIXED_BITFIELD_BITS_LENGTH, FIXED_BITFIELD_LENGTH, FixedBitfield};
 use crate::{
-    common::{BitfieldUpdate, StoreInfo, StoreInfoInstruction, StoreInfoType},
     Store,
+    common::{BitfieldUpdate, StoreInfo, StoreInfoInstruction, StoreInfoType},
 };
 use futures::future::Either;
 use std::{cell::RefCell, convert::TryInto};
@@ -176,22 +176,22 @@ impl DynamicBitfield {
             // not pages that don't exist, as they can't possibly contain the value.
 
             // To keep the common case fast, first try the same page as the position
-            if let Some(p) = self.pages.get(first_page) {
-                if let Some(index) = p.borrow().index_of(value, first_index as u32) {
-                    return Some(first_page * DYNAMIC_BITFIELD_PAGE_SIZE as u64 + index as u64);
-                };
-            }
+            if let Some(p) = self.pages.get(first_page)
+                && let Some(index) = p.borrow().index_of(value, first_index as u32)
+            {
+                return Some(first_page * DYNAMIC_BITFIELD_PAGE_SIZE as u64 + index as u64);
+            };
 
             // It wasn't found on the first page, now get the keys that are bigger
             // than the given index and sort them.
             let mut keys: Vec<&u64> = self.pages.keys().filter(|key| **key > first_page).collect();
             keys.sort();
             for key in keys {
-                if let Some(p) = self.pages.get(*key) {
-                    if let Some(index) = p.borrow().index_of(value, 0) {
-                        return Some(key * DYNAMIC_BITFIELD_PAGE_SIZE as u64 + index as u64);
-                    };
-                }
+                if let Some(p) = self.pages.get(*key)
+                    && let Some(index) = p.borrow().index_of(value, 0)
+                {
+                    return Some(key * DYNAMIC_BITFIELD_PAGE_SIZE as u64 + index as u64);
+                };
             }
         } else {
             // Searching for the false value is easier as it is automatically hit on
@@ -223,11 +223,11 @@ impl DynamicBitfield {
             // not pages that don't exist, as they can't possibly contain the value.
 
             // To keep the common case fast, first try the same page as the position
-            if let Some(p) = self.pages.get(last_page) {
-                if let Some(index) = p.borrow().last_index_of(value, last_index as u32) {
-                    return Some(last_page * DYNAMIC_BITFIELD_PAGE_SIZE as u64 + index as u64);
-                };
-            }
+            if let Some(p) = self.pages.get(last_page)
+                && let Some(index) = p.borrow().last_index_of(value, last_index as u32)
+            {
+                return Some(last_page * DYNAMIC_BITFIELD_PAGE_SIZE as u64 + index as u64);
+            };
 
             // It wasn't found on the last page, now get the keys that are smaller
             // than the given index and sort them.
@@ -236,14 +236,13 @@ impl DynamicBitfield {
             keys.reverse();
 
             for key in keys {
-                if let Some(p) = self.pages.get(*key) {
-                    if let Some(index) = p
+                if let Some(p) = self.pages.get(*key)
+                    && let Some(index) = p
                         .borrow()
                         .last_index_of(value, FIXED_BITFIELD_BITS_LENGTH as u32 - 1)
-                    {
-                        return Some(key * DYNAMIC_BITFIELD_PAGE_SIZE as u64 + index as u64);
-                    };
-                }
+                {
+                    return Some(key * DYNAMIC_BITFIELD_PAGE_SIZE as u64 + index as u64);
+                };
             }
         } else {
             // Searching for the false value is easier as it is automatically hit on

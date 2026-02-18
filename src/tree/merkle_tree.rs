@@ -1,5 +1,5 @@
 use compact_encoding::{
-    as_array, map_decode, to_encoded_bytes, EncodingError, FixedWidthEncoding, FixedWidthU64,
+    EncodingError, FixedWidthEncoding, FixedWidthU64, as_array, map_decode, to_encoded_bytes,
 };
 use ed25519_dalek::Signature;
 use futures::future::Either;
@@ -8,17 +8,18 @@ use intmap::IntMap;
 use moka::sync::Cache;
 use std::convert::TryFrom;
 
+use crate::Store;
 #[cfg(feature = "cache")]
 use crate::common::cache::CacheOptions;
-use crate::common::{HypercoreError, NodeByteRange, Proof, ValuelessProof};
-use crate::crypto::Hash;
+use crate::common::{HypercoreError, NodeByteRange, ValuelessProof};
 use crate::oplog::HeaderTree;
 use crate::{
+    VerifyingKey,
     common::{StoreInfo, StoreInfoInstruction},
-    Node, VerifyingKey,
 };
-use crate::{
-    DataBlock, DataHash, DataSeek, DataUpgrade, RequestBlock, RequestSeek, RequestUpgrade, Store,
+use hypercore_schema::{
+    DataBlock, DataHash, DataSeek, DataUpgrade, Hash, Node, Proof, RequestBlock, RequestSeek,
+    RequestUpgrade,
 };
 
 use super::MerkleTreeChangeset;
@@ -168,7 +169,7 @@ impl MerkleTree {
 
     /// Get storage byte range of given hypercore index
     pub(crate) fn byte_range(
-        &mut self,
+        &self,
         hypercore_index: u64,
         infos: Option<&[StoreInfo]>,
     ) -> Result<Either<Box<[StoreInfoInstruction]>, NodeByteRange>, HypercoreError> {
@@ -216,7 +217,7 @@ impl MerkleTree {
 
     /// Get the byte offset given hypercore index
     pub(crate) fn byte_offset(
-        &mut self,
+        &self,
         hypercore_index: u64,
         infos: Option<&[StoreInfo]>,
     ) -> Result<Either<Box<[StoreInfoInstruction]>, u64>, HypercoreError> {
@@ -226,7 +227,7 @@ impl MerkleTree {
 
     /// Get the byte offset of hypercore index in a changeset
     pub(crate) fn byte_offset_in_changeset(
-        &mut self,
+        &self,
         hypercore_index: u64,
         changeset: &MerkleTreeChangeset,
         infos: Option<&[StoreInfo]>,
@@ -241,10 +242,8 @@ impl MerkleTree {
         let mut parent: Option<Node> = None;
         for node in &changeset.nodes {
             if node.index == iter.index() {
-                if is_right {
-                    if let Some(parent) = parent {
-                        tree_offset += node.length - parent.length;
-                    }
+                if is_right && let Some(parent) = parent {
+                    tree_offset += node.length - parent.length;
                 }
                 parent = Some(node.clone());
                 is_right = iter.is_right();
@@ -279,7 +278,7 @@ impl MerkleTree {
     }
 
     pub(crate) fn truncate(
-        &mut self,
+        &self,
         length: u64,
         fork: u64,
         infos: Option<&[StoreInfo]>,
@@ -333,7 +332,7 @@ impl MerkleTree {
     /// https://github.com/holepunchto/hypercore/blob/9ce03363cb8938dbab53baba7d7cc9dde0508a7e/lib/merkle-tree.js#L1181
     /// The implementation should be rewritten to make it clearer.
     pub(crate) fn create_valueless_proof(
-        &mut self,
+        &self,
         block: Option<&RequestBlock>,
         hash: Option<&RequestBlock>,
         seek: Option<&RequestSeek>,
@@ -410,17 +409,15 @@ impl MerkleTree {
                 sub_tree = indexed.index;
             }
         }
-        if !untrusted_sub_tree {
-            if let Some(seek) = seek.as_ref() {
-                let index_or_instructions = self.seek_from_head(to, seek.bytes, &nodes)?;
-                sub_tree = match index_or_instructions {
-                    Either::Left(new_instructions) => {
-                        instructions.extend(new_instructions);
-                        return Ok(Either::Left(instructions.into_boxed_slice()));
-                    }
-                    Either::Right(index) => index,
-                };
-            }
+        if !untrusted_sub_tree && let Some(seek) = seek.as_ref() {
+            let index_or_instructions = self.seek_from_head(to, seek.bytes, &nodes)?;
+            sub_tree = match index_or_instructions {
+                Either::Left(new_instructions) => {
+                    instructions.extend(new_instructions);
+                    return Ok(Either::Left(instructions.into_boxed_slice()));
+                }
+                Either::Right(index) => index,
+            };
         }
 
         if upgrade.is_some() {
@@ -436,12 +433,11 @@ impl MerkleTree {
                 instructions.extend(new_instructions);
             }
 
-            if head > to {
-                if let Either::Left(new_instructions) =
+            if head > to
+                && let Either::Left(new_instructions) =
                     self.additional_upgrade_proof(to, head, &mut p, &nodes)?
-                {
-                    instructions.extend(new_instructions);
-                }
+            {
+                instructions.extend(new_instructions);
             }
         }
 
@@ -505,7 +501,7 @@ impl MerkleTree {
 
     /// Verifies a proof received from a peer.
     pub(crate) fn verify_proof(
-        &mut self,
+        &self,
         proof: &Proof,
         public_key: &VerifyingKey,
         infos: Option<&[StoreInfo]>,
@@ -520,16 +516,16 @@ impl MerkleTree {
             proof.seek.as_ref(),
             &mut changeset,
         )?;
-        if let Some(upgrade) = proof.upgrade.as_ref() {
-            if verify_upgrade(
+        if let Some(upgrade) = proof.upgrade.as_ref()
+            && verify_upgrade(
                 proof.fork,
                 upgrade,
                 unverified_block_root_node.as_ref(),
                 public_key,
                 &mut changeset,
-            )? {
-                unverified_block_root_node = None;
-            }
+            )?
+        {
+            unverified_block_root_node = None;
         }
 
         if let Some(unverified_block_root_node) = unverified_block_root_node {
@@ -562,7 +558,7 @@ impl MerkleTree {
 
     /// Attempts to get missing nodes from given index. NB: must be called in a loop.
     pub(crate) fn missing_nodes(
-        &mut self,
+        &self,
         index: u64,
         infos: Option<&[StoreInfo]>,
     ) -> Result<Either<Box<[StoreInfoInstruction]>, u64>, HypercoreError> {
@@ -694,7 +690,7 @@ impl MerkleTree {
     }
 
     fn byte_offset_from_index(
-        &mut self,
+        &self,
         index: u64,
         infos: Option<&[StoreInfo]>,
     ) -> Result<Either<Box<[StoreInfoInstruction]>, u64>, HypercoreError> {
@@ -798,10 +794,10 @@ impl MerkleTree {
     ) -> Result<Either<StoreInfoInstruction, Option<Node>>, HypercoreError> {
         // First check the cache
         #[cfg(feature = "cache")]
-        if let Some(node_cache) = &self.node_cache {
-            if let Some(node) = node_cache.get(&index) {
-                return Ok(Either::Right(Some(node)));
-            }
+        if let Some(node_cache) = &self.node_cache
+            && let Some(node) = node_cache.get(&index)
+        {
+            return Ok(Either::Right(Some(node)));
         }
 
         // Then check if unflushed has the node
@@ -1297,7 +1293,7 @@ impl MerkleTree {
     }
 
     fn infos_to_nodes(
-        &mut self,
+        &self,
         infos: Option<&[StoreInfo]>,
     ) -> Result<IntMap<Option<Node>>, HypercoreError> {
         match infos {
@@ -1308,10 +1304,10 @@ impl MerkleTree {
                     if !info.miss {
                         let node = node_from_bytes(&index, info.data.as_ref().unwrap())?;
                         #[cfg(feature = "cache")]
-                        if !node.blank {
-                            if let Some(node_cache) = &self.node_cache {
-                                node_cache.insert(node.index, node.clone())
-                            }
+                        if !node.blank
+                            && let Some(node_cache) = &self.node_cache
+                        {
+                            node_cache.insert(node.index, node.clone())
                         }
                         nodes.insert(index, Some(node));
                     } else {
@@ -1354,22 +1350,22 @@ fn verify_tree(
 
     let mut root: Option<Node> = None;
 
-    if let Some(seek) = seek {
-        if !seek.nodes.is_empty() {
-            let mut iter = flat_tree::Iterator::new(seek.nodes[0].index);
-            let mut q = NodeQueue::new(seek.nodes.clone(), None);
-            let node = q.shift(iter.index())?;
-            let mut current_root: Node = node.clone();
+    if let Some(seek) = seek
+        && !seek.nodes.is_empty()
+    {
+        let mut iter = flat_tree::Iterator::new(seek.nodes[0].index);
+        let mut q = NodeQueue::new(seek.nodes.clone(), None);
+        let node = q.shift(iter.index())?;
+        let mut current_root: Node = node.clone();
+        changeset.nodes.push(node);
+        while q.length > 0 {
+            let node = q.shift(iter.sibling())?;
+            let parent_node = parent_node(iter.parent(), &current_root, &node);
+            current_root = parent_node.clone();
             changeset.nodes.push(node);
-            while q.length > 0 {
-                let node = q.shift(iter.sibling())?;
-                let parent_node = parent_node(iter.parent(), &current_root, &node);
-                current_root = parent_node.clone();
-                changeset.nodes.push(node);
-                changeset.nodes.push(parent_node);
-            }
-            root = Some(current_root);
+            changeset.nodes.push(parent_node);
         }
+        root = Some(current_root);
     }
 
     if let Some(untrusted_node) = untrusted_node {
@@ -1474,7 +1470,7 @@ fn index_from_info(info: &StoreInfo) -> u64 {
 fn node_from_bytes(index: &u64, data: &[u8]) -> Result<Node, HypercoreError> {
     let len_buf = &data[..8];
     let hash = &data[8..];
-    let len = map_decode!(len_buf, [FixedWidthU64<'_>]).0 .0;
+    let len = map_decode!(len_buf, [FixedWidthU64<'_>]).0.0;
     Ok(Node::new(*index, hash.to_vec(), len))
 }
 
