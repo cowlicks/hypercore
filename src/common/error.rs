@@ -58,6 +58,10 @@ pub enum HypercoreError {
         #[source]
         source: std::io::Error,
     },
+
+    #[cfg(feature = "replication")]
+    #[error("hypercore_protocol Error")]
+    Protocol(#[from] hypercore_protocol::Error),
 }
 
 impl From<std::io::Error> for HypercoreError {
