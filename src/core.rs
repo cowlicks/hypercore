@@ -1,8 +1,9 @@
 //! Hypercore's main abstraction. Exposes an append-only, secure log structure.
 use ed25519_dalek::Signature;
 use futures::future::Either;
-use std::convert::TryFrom;
 use std::fmt::Debug;
+#[cfg(feature = "replication")]
+use std::sync::Mutex;
 use tracing::instrument;
 
 #[cfg(feature = "cache")]
@@ -51,6 +52,8 @@ pub struct Hypercore {
     header: Header,
     #[cfg(feature = "replication")]
     events: crate::replication::events::Events,
+    #[cfg(feature = "replication")]
+    pub(crate) peers: Vec<Mutex<crate::replication::Peer>>,
 }
 
 /// Response from append, matches that of the Javascript result
@@ -252,6 +255,8 @@ impl Hypercore {
             skip_flush_count: 0,
             #[cfg(feature = "replication")]
             events: crate::replication::events::Events::new(),
+            #[cfg(feature = "replication")]
+            peers: Default::default(),
         })
     }
 
