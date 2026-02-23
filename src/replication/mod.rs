@@ -3,17 +3,27 @@ pub mod events;
 #[cfg(feature = "shared-core")]
 pub mod shared_core;
 
+use futures::Stream;
+use futures_lite::future::FutureExt;
+use hypercore_handshake::CipherTrait;
+use hypercore_protocol::{Protocol, discovery_key};
 #[cfg(feature = "shared-core")]
 pub use shared_core::SharedCore;
+use tracing::{error, trace, warn};
 
-use crate::{AppendOutcome, HypercoreError, Info, PartialKeypair};
+use crate::{AppendOutcome, Hypercore, HypercoreError, Info, PartialKeypair};
 
 use hypercore_schema::{Proof, RequestBlock, RequestSeek, RequestUpgrade};
 
 pub use events::Event;
 
 use async_broadcast::Receiver;
-use std::future::Future;
+use std::{
+    future::Future,
+    pin::Pin,
+    sync::Mutex,
+    task::{Context, Poll},
+};
 
 /// Methods related to just this core's information
 pub trait CoreInfo {
@@ -89,4 +99,99 @@ pub trait CoreMethods: CoreInfo {
         &self,
         batch: B,
     ) -> impl Future<Output = Result<AppendOutcome, CoreMethodsError>> + Send;
+}
+
+pub struct Peer {
+    protocol: Protocol,
+    pending_open: Option<Pin<Box<dyn Future<Output = Result<(), std::io::Error>>>>>,
+}
+
+impl std::fmt::Debug for Peer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Peer")
+            .field("protocol", &self.protocol)
+            //.field("pending_open", &self.pending_open)
+            .finish()
+    }
+}
+impl Peer {
+    fn new(protocol: Protocol) -> Self {
+        Self {
+            protocol,
+            pending_open: Default::default(),
+        }
+    }
+
+    fn poll_peer(
+        &mut self,
+        core: &mut Hypercore,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), HypercoreError>> {
+        if let Some(mut fut) = self.pending_open.take() {
+            match fut.poll(cx) {
+                Poll::Ready(res) => match res {
+                    Ok(_) => {
+                        trace!("protocol opened");
+                    }
+                    Err(e) => {
+                        error!(error =? e, "protocol open failed");
+                    }
+                },
+                Poll::Pending => {
+                    _ = self.pending_open.insert(fut);
+                    return Poll::Pending;
+                }
+            }
+        }
+        let event = match Pin::new(&mut self.protocol).poll_next(cx) {
+            Poll::Ready(res) => match res {
+                Some(Ok(e)) => e,
+                Some(Err(e)) => return Poll::Ready(Err(e.into())),
+                None => return Poll::Pending,
+            },
+            Poll::Pending => todo!(),
+        };
+        match event {
+            hypercore_protocol::Event::Handshake(_) => {
+                if self.protocol.is_initiator() {
+                    let key = core.key_pair().public.to_bytes();
+                    self.pending_open = Some(Box::pin(self.protocol.open(key)));
+                }
+            }
+            hypercore_protocol::Event::DiscoveryKey(dkey) => {
+                let key = core.key_pair().public.to_bytes();
+                let this_dkey = discovery_key(&key);
+                if this_dkey == dkey {
+                    self.pending_open = Some(Box::pin(self.protocol.open(key)));
+                } else {
+                    warn!("Got discovery key for different core: {dkey:?}");
+                }
+            }
+            hypercore_protocol::Event::Channel(channel) => todo!(),
+            hypercore_protocol::Event::Close(_) => {}
+            _ => todo!(),
+        }
+        todo!()
+    }
+}
+
+impl Hypercore {
+    pub fn replicate(&mut self, stream: impl CipherTrait + 'static) {
+        let protocol = Protocol::new(Box::new(stream));
+        self.peers.push(Mutex::new(Peer::new(protocol)));
+    }
+}
+
+impl Stream for Hypercore {
+    type Item = Result<(), HypercoreError>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        use std::ops::DerefMut;
+        for peer in self.peers.iter() {
+            if let Poll::Ready(_) = peer.lock().unwrap().poll_peer(self.deref_mut(), cx) {
+                cx.waker().wake_by_ref();
+            }
+        }
+        Poll::Pending
+    }
 }
