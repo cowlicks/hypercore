@@ -1,16 +1,11 @@
-#![forbid(
-    unsafe_code,
-    future_incompatible,
-    rust_2018_idioms,
-    rust_2018_compatibility,
-    missing_debug_implementations,
-    missing_docs
-)]
+#![forbid(unsafe_code, future_incompatible)]
 #![doc(test(attr(deny(warnings))))]
 #![warn(
     unreachable_pub,
     redundant_lifetimes,
     non_local_definitions,
+    missing_debug_implementations,
+    missing_docs,
     clippy::needless_pass_by_value,
     clippy::needless_pass_by_ref_mut,
     clippy::enum_glob_use
