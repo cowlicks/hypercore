@@ -127,12 +127,12 @@ impl Storage {
             return Ok(vec![]);
         }
         let mut current_store: Store = info_instructions[0].store.clone();
-        let mut storage = self.get_random_access_mut(&current_store);
+        let mut storage = self.get_random_access(&current_store);
         let mut infos: Vec<StoreInfo> = Vec::with_capacity(info_instructions.len());
         for instruction in info_instructions.iter() {
             if instruction.store != current_store {
                 current_store = instruction.store.clone();
-                storage = self.get_random_access_mut(&current_store);
+                storage = self.get_random_access(&current_store);
             }
             match instruction.info_type {
                 StoreInfoType::Content => {
@@ -236,6 +236,14 @@ impl Storage {
             Store::Data => &mut self.data,
             Store::Bitfield => &mut self.bitfield,
             Store::Oplog => &mut self.oplog,
+        }
+    }
+    fn get_random_access(&self, store: &Store) -> &Box<dyn StorageTraits + Send> {
+        match store {
+            Store::Tree => &self.tree,
+            Store::Data => &self.data,
+            Store::Bitfield => &self.bitfield,
+            Store::Oplog => &self.oplog,
         }
     }
 
