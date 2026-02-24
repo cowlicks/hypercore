@@ -100,7 +100,7 @@ impl Storage {
 
     /// Read info from store based on given instruction. Convenience method to `read_infos`.
     pub(crate) async fn read_info(
-        &mut self,
+        &self,
         info_instruction: StoreInfoInstruction,
     ) -> Result<StoreInfo, HypercoreError> {
         let mut infos = self.read_infos_to_vec(&[info_instruction]).await?;
@@ -111,7 +111,7 @@ impl Storage {
 
     /// Read infos from stores based on given instructions
     pub(crate) async fn read_infos(
-        &mut self,
+        &self,
         info_instructions: &[StoreInfoInstruction],
     ) -> Result<Box<[StoreInfo]>, HypercoreError> {
         let infos = self.read_infos_to_vec(info_instructions).await?;
@@ -120,7 +120,7 @@ impl Storage {
 
     /// Reads infos but retains them as a Vec
     pub(crate) async fn read_infos_to_vec(
-        &mut self,
+        &self,
         info_instructions: &[StoreInfoInstruction],
     ) -> Result<Vec<StoreInfo>, HypercoreError> {
         if info_instructions.is_empty() {
@@ -180,21 +180,21 @@ impl Storage {
     }
 
     /// Flush info to storage. Convenience method to `flush_infos`.
-    pub(crate) async fn flush_info(&mut self, slice: StoreInfo) -> Result<(), HypercoreError> {
+    pub(crate) async fn flush_info(&self, slice: StoreInfo) -> Result<(), HypercoreError> {
         self.flush_infos(&[slice]).await
     }
 
     /// Flush infos to storage
-    pub(crate) async fn flush_infos(&mut self, infos: &[StoreInfo]) -> Result<(), HypercoreError> {
+    pub(crate) async fn flush_infos(&self, infos: &[StoreInfo]) -> Result<(), HypercoreError> {
         if infos.is_empty() {
             return Ok(());
         }
         let mut current_store: Store = infos[0].store.clone();
-        let mut storage = self.get_random_access_mut(&current_store);
+        let mut storage = self.get_random_access(&current_store);
         for info in infos.iter() {
             if info.store != current_store {
                 current_store = info.store.clone();
-                storage = self.get_random_access_mut(&current_store);
+                storage = self.get_random_access(&current_store);
             }
             match info.info_type {
                 StoreInfoType::Content => {
@@ -230,14 +230,6 @@ impl Storage {
         Ok(())
     }
 
-    fn get_random_access_mut(&mut self, store: &Store) -> &mut Box<dyn StorageTraits + Send> {
-        match store {
-            Store::Tree => &mut self.tree,
-            Store::Data => &mut self.data,
-            Store::Bitfield => &mut self.bitfield,
-            Store::Oplog => &mut self.oplog,
-        }
-    }
     fn get_random_access(&self, store: &Store) -> &Box<dyn StorageTraits + Send> {
         match store {
             Store::Tree => &self.tree,

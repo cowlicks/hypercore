@@ -72,7 +72,7 @@ async fn hypercore_make_read_only() -> Result<()> {
         &write_key_pair.secret.as_ref().unwrap().to_bytes()[16..],
     ));
 
-    let mut hypercore = open_hypercore(&dir.path().to_string_lossy()).await?;
+    let hypercore = open_hypercore(&dir.path().to_string_lossy()).await?;
     assert_eq!(&hypercore.get(0).await?.unwrap(), b"Hello");
     assert_eq!(&hypercore.get(1).await?.unwrap(), b"World!");
     Ok(())

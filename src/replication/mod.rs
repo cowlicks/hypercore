@@ -124,7 +124,7 @@ impl Peer {
 
     fn poll_peer(
         &mut self,
-        core: &mut Hypercore,
+        core: &Hypercore,
         cx: &mut Context<'_>,
     ) -> Poll<Result<(), HypercoreError>> {
         if let Some(mut fut) = self.pending_open.take() {
@@ -186,7 +186,6 @@ impl Stream for Hypercore {
     type Item = Result<(), HypercoreError>;
 
     fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        
         //for peer in self.peers.iter() {
         //    if let Poll::Ready(_) = peer.lock().unwrap().poll_peer(self.deref_mut(), cx) {
         //        cx.waker().wake_by_ref();

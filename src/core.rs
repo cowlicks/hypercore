@@ -84,7 +84,7 @@ pub struct Info {
 impl Hypercore {
     /// Creates/opens new hypercore using given storage and options
     pub(crate) async fn new(
-        mut storage: Storage,
+        storage: Storage,
         mut options: HypercoreOptions,
     ) -> Result<Hypercore, HypercoreError> {
         let key_pair: Option<PartialKeypair> = if options.open {
@@ -365,7 +365,7 @@ impl Hypercore {
 
     /// Read value at given index, if any.
     #[instrument(err, skip(self))]
-    pub async fn get(&mut self, index: u64) -> Result<Option<Vec<u8>>, HypercoreError> {
+    pub async fn get(&self, index: u64) -> Result<Option<Vec<u8>>, HypercoreError> {
         if !self.bitfield.get(index) {
             #[cfg(feature = "replication")]
             // if not in this core, emit Event::Get(index)
@@ -473,7 +473,7 @@ impl Hypercore {
     /// Create a proof for given request
     #[instrument(err, skip_all)]
     pub async fn create_proof(
-        &mut self,
+        &self,
         block: Option<RequestBlock>,
         hash: Option<RequestBlock>,
         seek: Option<RequestSeek>,
@@ -599,7 +599,7 @@ impl Hypercore {
     /// Used to fill the nodes field of a `RequestBlock` during
     /// synchronization.
     #[instrument(err, skip(self))]
-    pub async fn missing_nodes(&mut self, index: u64) -> Result<u64, HypercoreError> {
+    pub async fn missing_nodes(&self, index: u64) -> Result<u64, HypercoreError> {
         self.missing_nodes_from_merkle_tree_index(index * 2).await
     }
 
@@ -607,7 +607,7 @@ impl Hypercore {
     /// that allow for special cases of searching directly from the merkle tree.
     #[instrument(err, skip(self))]
     pub async fn missing_nodes_from_merkle_tree_index(
-        &mut self,
+        &self,
         merkle_tree_index: u64,
     ) -> Result<u64, HypercoreError> {
         match self.tree.missing_nodes(merkle_tree_index, None)? {
@@ -648,7 +648,7 @@ impl Hypercore {
     }
 
     async fn byte_range(
-        &mut self,
+        &self,
         index: u64,
         initial_infos: Option<&[StoreInfo]>,
     ) -> Result<NodeByteRange, HypercoreError> {
@@ -673,7 +673,7 @@ impl Hypercore {
     }
 
     async fn create_valueless_proof(
-        &mut self,
+        &self,
         block: Option<RequestBlock>,
         hash: Option<RequestBlock>,
         seek: Option<RequestSeek>,
@@ -713,7 +713,7 @@ impl Hypercore {
 
     /// Verify a proof received from a peer. Returns a changeset that should be
     /// applied.
-    async fn verify_proof(&mut self, proof: &Proof) -> Result<MerkleTreeChangeset, HypercoreError> {
+    async fn verify_proof(&self, proof: &Proof) -> Result<MerkleTreeChangeset, HypercoreError> {
         match self.tree.verify_proof(proof, &self.key_pair.public, None)? {
             Either::Right(value) => Ok(value),
             Either::Left(instructions) => {
@@ -786,7 +786,7 @@ pub(crate) mod tests {
 
     #[async_std::test]
     async fn core_create_proof_block_only() -> Result<(), HypercoreError> {
-        let mut hypercore = create_hypercore_with_data(10).await?;
+        let hypercore = create_hypercore_with_data(10).await?;
 
         let proof = hypercore
             .create_proof(Some(RequestBlock { index: 4, nodes: 2 }), None, None, None)
@@ -804,7 +804,7 @@ pub(crate) mod tests {
 
     #[async_std::test]
     async fn core_create_proof_block_and_upgrade() -> Result<(), HypercoreError> {
-        let mut hypercore = create_hypercore_with_data(10).await?;
+        let hypercore = create_hypercore_with_data(10).await?;
         let proof = hypercore
             .create_proof(
                 Some(RequestBlock { index: 4, nodes: 0 }),
@@ -835,7 +835,7 @@ pub(crate) mod tests {
 
     #[async_std::test]
     async fn core_create_proof_block_and_upgrade_and_additional() -> Result<(), HypercoreError> {
-        let mut hypercore = create_hypercore_with_data(10).await?;
+        let hypercore = create_hypercore_with_data(10).await?;
         let proof = hypercore
             .create_proof(
                 Some(RequestBlock { index: 4, nodes: 0 }),
@@ -867,7 +867,7 @@ pub(crate) mod tests {
     #[async_std::test]
     async fn core_create_proof_block_and_upgrade_from_existing_state() -> Result<(), HypercoreError>
     {
-        let mut hypercore = create_hypercore_with_data(10).await?;
+        let hypercore = create_hypercore_with_data(10).await?;
         let proof = hypercore
             .create_proof(
                 Some(RequestBlock { index: 1, nodes: 0 }),
@@ -898,7 +898,7 @@ pub(crate) mod tests {
     #[async_std::test]
     async fn core_create_proof_block_and_upgrade_from_existing_state_with_additional()
     -> Result<(), HypercoreError> {
-        let mut hypercore = create_hypercore_with_data(10).await?;
+        let hypercore = create_hypercore_with_data(10).await?;
         let proof = hypercore
             .create_proof(
                 Some(RequestBlock { index: 1, nodes: 0 }),
@@ -929,7 +929,7 @@ pub(crate) mod tests {
 
     #[async_std::test]
     async fn core_create_proof_block_and_seek_1_no_upgrade() -> Result<(), HypercoreError> {
-        let mut hypercore = create_hypercore_with_data(10).await?;
+        let hypercore = create_hypercore_with_data(10).await?;
         let proof = hypercore
             .create_proof(
                 Some(RequestBlock { index: 4, nodes: 2 }),
@@ -951,7 +951,7 @@ pub(crate) mod tests {
 
     #[async_std::test]
     async fn core_create_proof_block_and_seek_2_no_upgrade() -> Result<(), HypercoreError> {
-        let mut hypercore = create_hypercore_with_data(10).await?;
+        let hypercore = create_hypercore_with_data(10).await?;
         let proof = hypercore
             .create_proof(
                 Some(RequestBlock { index: 4, nodes: 2 }),
@@ -973,7 +973,7 @@ pub(crate) mod tests {
 
     #[async_std::test]
     async fn core_create_proof_block_and_seek_3_no_upgrade() -> Result<(), HypercoreError> {
-        let mut hypercore = create_hypercore_with_data(10).await?;
+        let hypercore = create_hypercore_with_data(10).await?;
         let proof = hypercore
             .create_proof(
                 Some(RequestBlock { index: 4, nodes: 2 }),
@@ -997,7 +997,7 @@ pub(crate) mod tests {
 
     #[async_std::test]
     async fn core_create_proof_block_and_seek_to_tree_no_upgrade() -> Result<(), HypercoreError> {
-        let mut hypercore = create_hypercore_with_data(16).await?;
+        let hypercore = create_hypercore_with_data(16).await?;
         let proof = hypercore
             .create_proof(
                 Some(RequestBlock { index: 0, nodes: 4 }),
@@ -1022,7 +1022,7 @@ pub(crate) mod tests {
 
     #[async_std::test]
     async fn core_create_proof_block_and_seek_with_upgrade() -> Result<(), HypercoreError> {
-        let mut hypercore = create_hypercore_with_data(10).await?;
+        let hypercore = create_hypercore_with_data(10).await?;
         let proof = hypercore
             .create_proof(
                 Some(RequestBlock { index: 4, nodes: 2 }),
@@ -1052,7 +1052,7 @@ pub(crate) mod tests {
 
     #[async_std::test]
     async fn core_create_proof_seek_with_upgrade() -> Result<(), HypercoreError> {
-        let mut hypercore = create_hypercore_with_data(10).await?;
+        let hypercore = create_hypercore_with_data(10).await?;
         let proof = hypercore
             .create_proof(
                 None,
@@ -1081,7 +1081,7 @@ pub(crate) mod tests {
 
     #[async_std::test]
     async fn core_verify_proof_invalid_signature() -> Result<(), HypercoreError> {
-        let mut hypercore = create_hypercore_with_data(10).await?;
+        let hypercore = create_hypercore_with_data(10).await?;
         // Invalid clone hypercore with a different public key
         let mut hypercore_clone = create_hypercore_with_data(0).await?;
         let proof = hypercore
@@ -1107,7 +1107,7 @@ pub(crate) mod tests {
 
     #[async_std::test]
     async fn core_verify_and_apply_proof() -> Result<(), HypercoreError> {
-        let mut main = create_hypercore_with_data(10).await?;
+        let main = create_hypercore_with_data(10).await?;
         let mut clone = create_hypercore_with_data_and_key_pair(
             0,
             PartialKeypair {
