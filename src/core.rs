@@ -277,6 +277,12 @@ impl Hypercore {
         self.append_batch(&[data]).await
     }
 
+    fn append_outcome(&self) -> AppendOutcome {
+        AppendOutcome {
+            length: self.tree.length,
+            byte_length: self.tree.byte_length,
+        }
+    }
     /// Appends a given batch of data slices to the hypercore.
     #[instrument(err, skip_all, fields(batch_len = batch.as_ref().len()))]
     pub async fn append_batch<A: AsRef<[u8]>, B: AsRef<[A]>>(
@@ -288,67 +294,64 @@ impl Hypercore {
             None => return Err(HypercoreError::NotWritable),
         };
 
-        if !batch.as_ref().is_empty() {
-            // Create a changeset for the tree
-            let mut changeset = self.tree.changeset();
-            let mut batch_length: usize = 0;
-            for data in batch.as_ref().iter() {
-                batch_length += changeset.append(data.as_ref());
-            }
-            changeset.hash_and_sign(secret_key);
+        if batch.as_ref().is_empty() {
+            return Ok(self.append_outcome());
+        }
+        // Create a changeset for the tree
+        let mut changeset = self.tree.changeset();
+        let mut batch_length: usize = 0;
+        for data in batch.as_ref().iter() {
+            batch_length += changeset.append(data.as_ref());
+        }
+        changeset.hash_and_sign(secret_key);
 
-            // Write the received data to the block store
-            let info =
-                self.block_store
-                    .append_batch(batch.as_ref(), batch_length, self.tree.byte_length);
-            self.storage.flush_info(info).await?;
+        // Write the received data to the block store
+        let info =
+            self.block_store
+                .append_batch(batch.as_ref(), batch_length, self.tree.byte_length);
+        self.storage.flush_info(info).await?;
 
-            // Append the changeset to the Oplog
-            let bitfield_update = BitfieldUpdate {
-                drop: false,
-                start: changeset.ancestors,
-                length: changeset.batch_length,
-            };
-            let outcome = self.oplog.append_changeset(
-                &changeset,
-                Some(bitfield_update.clone()),
-                false,
-                &self.header,
-            )?;
-            self.storage.flush_infos(&outcome.infos_to_flush).await?;
-            self.header = outcome.header;
+        // Append the changeset to the Oplog
+        let bitfield_update = BitfieldUpdate {
+            drop: false,
+            start: changeset.ancestors,
+            length: changeset.batch_length,
+        };
+        let outcome = self.oplog.append_changeset(
+            &changeset,
+            Some(bitfield_update.clone()),
+            false,
+            &self.header,
+        )?;
+        self.storage.flush_infos(&outcome.infos_to_flush).await?;
+        self.header = outcome.header;
 
-            // Write to bitfield
-            self.bitfield.update(&bitfield_update);
+        // Write to bitfield
+        self.bitfield.update(&bitfield_update);
 
-            // Contiguous length is known only now
-            update_contiguous_length(&mut self.header, &self.bitfield, &bitfield_update);
+        // Contiguous length is known only now
+        update_contiguous_length(&mut self.header, &self.bitfield, &bitfield_update);
 
-            // Commit changeset to in-memory tree
-            self.tree.commit(changeset)?;
+        // Commit changeset to in-memory tree
+        self.tree.commit(changeset)?;
 
-            // Now ready to flush
-            if self.should_flush_bitfield_and_tree_and_oplog() {
-                self.flush_bitfield_and_tree_and_oplog(false).await?;
-            }
-
-            #[cfg(feature = "replication")]
-            {
-                use tracing::trace;
-
-                trace!(bitfield_update = ?bitfield_update, "Hppercore.append_batch emit DataUpgrade & Have");
-                let _ = self.events.send(crate::replication::events::DataUpgrade {});
-                let _ = self
-                    .events
-                    .send(crate::replication::events::Have::from(&bitfield_update));
-            }
+        // Now ready to flush
+        if self.should_flush_bitfield_and_tree_and_oplog() {
+            self.flush_bitfield_and_tree_and_oplog(false).await?;
         }
 
-        // Return the new value
-        Ok(AppendOutcome {
-            length: self.tree.length,
-            byte_length: self.tree.byte_length,
-        })
+        #[cfg(feature = "replication")]
+        {
+            use tracing::trace;
+
+            trace!(bitfield_update = ?bitfield_update, "Hppercore.append_batch emit DataUpgrade & Have");
+            let _ = self.events.send(crate::replication::events::DataUpgrade {});
+            let _ = self
+                .events
+                .send(crate::replication::events::Have::from(&bitfield_update));
+        }
+
+        Ok(self.append_outcome())
     }
 
     #[cfg(feature = "replication")]
