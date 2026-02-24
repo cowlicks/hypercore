@@ -103,7 +103,7 @@ pub trait CoreMethods: CoreInfo {
 
 pub struct Peer {
     protocol: Protocol,
-    pending_open: Option<Pin<Box<dyn Future<Output = Result<(), std::io::Error>>>>>,
+    _pending_open: Option<Pin<Box<dyn Future<Output = Result<(), std::io::Error>>>>>,
 }
 
 impl std::fmt::Debug for Peer {
@@ -118,16 +118,16 @@ impl Peer {
     fn new(protocol: Protocol) -> Self {
         Self {
             protocol,
-            pending_open: Default::default(),
+            _pending_open: Default::default(),
         }
     }
 
-    fn poll_peer(
+    fn _poll_peer(
         &mut self,
         core: &Hypercore,
         cx: &mut Context<'_>,
     ) -> Poll<Result<(), HypercoreError>> {
-        if let Some(mut fut) = self.pending_open.take() {
+        if let Some(mut fut) = self._pending_open.take() {
             match fut.poll(cx) {
                 Poll::Ready(res) => match res {
                     Ok(_) => {
@@ -138,7 +138,7 @@ impl Peer {
                     }
                 },
                 Poll::Pending => {
-                    _ = self.pending_open.insert(fut);
+                    _ = self._pending_open.insert(fut);
                     return Poll::Pending;
                 }
             }
@@ -155,14 +155,14 @@ impl Peer {
             hypercore_protocol::Event::Handshake(_) => {
                 if self.protocol.is_initiator() {
                     let key = core.key_pair().public.to_bytes();
-                    self.pending_open = Some(Box::pin(self.protocol.open(key)));
+                    self._pending_open = Some(Box::pin(self.protocol.open(key)));
                 }
             }
             hypercore_protocol::Event::DiscoveryKey(dkey) => {
                 let key = core.key_pair().public.to_bytes();
                 let this_dkey = discovery_key(&key);
                 if this_dkey == dkey {
-                    self.pending_open = Some(Box::pin(self.protocol.open(key)));
+                    self._pending_open = Some(Box::pin(self.protocol.open(key)));
                 } else {
                     warn!("Got discovery key for different core: {dkey:?}");
                 }
