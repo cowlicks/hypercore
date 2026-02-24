@@ -1,5 +1,3 @@
-#[cfg(feature = "async-std")]
-use async_std::main as async_main;
 use hypercore::{HypercoreBuilder, HypercoreError, Storage};
 #[cfg(feature = "tokio")]
 use tokio::main as async_main;

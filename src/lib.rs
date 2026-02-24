@@ -46,10 +46,6 @@
 //! # tokio_test::block_on(async {
 //! # example().await;
 //! # });
-//! # #[cfg(feature = "async-std")]
-//! # async_std::task::block_on(async {
-//! # example().await;
-//! # });
 //! # async fn example() {
 //! use hypercore::{HypercoreBuilder, Storage};
 //!

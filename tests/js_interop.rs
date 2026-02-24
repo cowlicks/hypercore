@@ -7,8 +7,6 @@ use common::{create_hypercore, create_hypercore_hash, open_hypercore};
 use js::{cleanup, install, js_run_step, prepare_test_set};
 use test_log::test;
 
-#[cfg(feature = "async-std")]
-use async_std::test as async_test;
 #[cfg(feature = "tokio")]
 use tokio::test as async_test;
 
