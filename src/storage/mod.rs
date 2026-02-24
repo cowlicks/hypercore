@@ -74,16 +74,16 @@ impl Storage {
         let mut oplog = create(Store::Oplog).await.map_err(map_random_access_err)?;
 
         if overwrite {
-            if tree.len().await.map_err(map_random_access_err)? > 0 {
+            if tree.len() > 0 {
                 tree.truncate(0).await.map_err(map_random_access_err)?;
             }
-            if data.len().await.map_err(map_random_access_err)? > 0 {
+            if data.len() > 0 {
                 data.truncate(0).await.map_err(map_random_access_err)?;
             }
-            if bitfield.len().await.map_err(map_random_access_err)? > 0 {
+            if bitfield.len() > 0 {
                 bitfield.truncate(0).await.map_err(map_random_access_err)?;
             }
-            if oplog.len().await.map_err(map_random_access_err)? > 0 {
+            if oplog.len() > 0 {
                 oplog.truncate(0).await.map_err(map_random_access_err)?;
             }
         }
@@ -138,7 +138,7 @@ impl Storage {
                 StoreInfoType::Content => {
                     let read_length = match instruction.length {
                         Some(length) => length,
-                        None => storage.len().await.map_err(map_random_access_err)?,
+                        None => storage.len(),
                     };
                     let read_result = storage.read(instruction.index, read_length).await;
                     let info: StoreInfo = match read_result {
@@ -167,7 +167,7 @@ impl Storage {
                     infos.push(info);
                 }
                 StoreInfoType::Size => {
-                    let length = storage.len().await.map_err(map_random_access_err)?;
+                    let length = storage.len();
                     infos.push(StoreInfo::new_size(
                         instruction.store.clone(),
                         instruction.index,

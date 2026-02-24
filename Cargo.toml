@@ -32,8 +32,6 @@ flat-tree = "6"
 merkle-tree-stream =  "0.12"
 pretty-hash = "0.4"
 rand = "0.8"
-random-access-memory = "3"
-random-access-storage = "5"
 sha2 = "0.10"
 futures = "0.3"
 crc32fast = "1"
@@ -54,9 +52,15 @@ path = "../protocol/"
 optional = true
 path = "../handshake/"
 
+[dependencies.random-access-storage]
+path = "../ram/storage"
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-random-access-disk = { version = "3", default-features = false }
+[dependencies.random-access-memory]
+path = "../ram/mem/"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies.random-access-disk]
+path = "../ram/disk"
+default-features = false
 
 [dev-dependencies]
 anyhow = "1.0.70"
@@ -79,7 +83,6 @@ replication = ["dep:async-broadcast", "dep:hypercore-protocol", "dep:hypercore_h
 shared-core = ["replication", "dep:async-lock"]
 sparse = ["random-access-disk/sparse"]
 tokio = ["random-access-disk/tokio"]
-async-std = ["random-access-disk/async-std"]
 cache = ["moka"]
 # Used only in interoperability tests under tests/js-interop which use the javascript version of hypercore
 # to verify that this crate works. To run them, use:
