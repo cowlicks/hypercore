@@ -66,12 +66,12 @@ impl Storage {
             >,
         >,
     {
-        let mut tree = create(Store::Tree).await.map_err(map_random_access_err)?;
-        let mut data = create(Store::Data).await.map_err(map_random_access_err)?;
-        let mut bitfield = create(Store::Bitfield)
+        let tree = create(Store::Tree).await.map_err(map_random_access_err)?;
+        let data = create(Store::Data).await.map_err(map_random_access_err)?;
+        let bitfield = create(Store::Bitfield)
             .await
             .map_err(map_random_access_err)?;
-        let mut oplog = create(Store::Oplog).await.map_err(map_random_access_err)?;
+        let oplog = create(Store::Oplog).await.map_err(map_random_access_err)?;
 
         if overwrite {
             if tree.len() > 0 {

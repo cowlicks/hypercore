@@ -167,7 +167,7 @@ impl Peer {
                     warn!("Got discovery key for different core: {dkey:?}");
                 }
             }
-            hypercore_protocol::Event::Channel(channel) => todo!(),
+            hypercore_protocol::Event::Channel(_channel) => todo!(),
             hypercore_protocol::Event::Close(_) => {}
             _ => todo!(),
         }
@@ -185,8 +185,8 @@ impl Hypercore {
 impl Stream for Hypercore {
     type Item = Result<(), HypercoreError>;
 
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        use std::ops::DerefMut;
+    fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        
         //for peer in self.peers.iter() {
         //    if let Poll::Ready(_) = peer.lock().unwrap().poll_peer(self.deref_mut(), cx) {
         //        cx.waker().wake_by_ref();
