@@ -187,11 +187,11 @@ impl Stream for Hypercore {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         use std::ops::DerefMut;
-        for peer in self.peers.iter() {
-            if let Poll::Ready(_) = peer.lock().unwrap().poll_peer(self.deref_mut(), cx) {
-                cx.waker().wake_by_ref();
-            }
-        }
+        //for peer in self.peers.iter() {
+        //    if let Poll::Ready(_) = peer.lock().unwrap().poll_peer(self.deref_mut(), cx) {
+        //        cx.waker().wake_by_ref();
+        //    }
+        //}
         Poll::Pending
     }
 }

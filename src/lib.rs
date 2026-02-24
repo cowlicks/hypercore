@@ -5,7 +5,7 @@
     redundant_lifetimes,
     non_local_definitions,
     missing_debug_implementations,
-    missing_docs,
+    //missing_docs,
     clippy::needless_pass_by_value,
     clippy::needless_pass_by_ref_mut,
     clippy::enum_glob_use
