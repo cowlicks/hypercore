@@ -1,4 +1,5 @@
 use compact_encoding::EncodingError;
+use random_access_storage::RandomAccessError;
 use thiserror::Error;
 
 use crate::Store;
@@ -78,5 +79,35 @@ impl From<EncodingError> for HypercoreError {
         Self::InvalidOperation {
             context: format!("Encoding failed: {err}"),
         }
+    }
+}
+
+impl From<RandomAccessError> for HypercoreError {
+    fn from(value: RandomAccessError) -> Self {
+        map_random_access_err(value)
+    }
+}
+
+pub(crate) fn map_random_access_err(err: RandomAccessError) -> HypercoreError {
+    match err {
+        RandomAccessError::IO {
+            return_code,
+            context,
+            source,
+        } => HypercoreError::IO {
+            context: Some(format!(
+                "RandomAccess IO error. Context: {context:?}, return_code: {return_code:?}",
+            )),
+            source,
+        },
+        RandomAccessError::OutOfBounds {
+            offset,
+            end,
+            length,
+        } => HypercoreError::InvalidOperation {
+            context: format!(
+                "RandomAccess out of bounds. Offset: {offset}, end: {end:?}, length: {length}",
+            ),
+        },
     }
 }

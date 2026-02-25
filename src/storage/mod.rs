@@ -28,30 +28,6 @@ pub struct Storage {
     oplog: Box<dyn StorageTraits + Send>,
 }
 
-pub(crate) fn map_random_access_err(err: RandomAccessError) -> HypercoreError {
-    match err {
-        RandomAccessError::IO {
-            return_code,
-            context,
-            source,
-        } => HypercoreError::IO {
-            context: Some(format!(
-                "RandomAccess IO error. Context: {context:?}, return_code: {return_code:?}",
-            )),
-            source,
-        },
-        RandomAccessError::OutOfBounds {
-            offset,
-            end,
-            length,
-        } => HypercoreError::InvalidOperation {
-            context: format!(
-                "RandomAccess out of bounds. Offset: {offset}, end: {end:?}, length: {length}",
-            ),
-        },
-    }
-}
-
 impl Storage {
     /// Create a new instance. Takes a callback to create new storage instances and overwrite flag.
     pub async fn open<Cb>(create: Cb, overwrite: bool) -> Result<Self, HypercoreError>
@@ -66,25 +42,23 @@ impl Storage {
             >,
         >,
     {
-        let tree = create(Store::Tree).await.map_err(map_random_access_err)?;
-        let data = create(Store::Data).await.map_err(map_random_access_err)?;
-        let bitfield = create(Store::Bitfield)
-            .await
-            .map_err(map_random_access_err)?;
-        let oplog = create(Store::Oplog).await.map_err(map_random_access_err)?;
+        let tree = create(Store::Tree).await?;
+        let data = create(Store::Data).await?;
+        let bitfield = create(Store::Bitfield).await?;
+        let oplog = create(Store::Oplog).await?;
 
         if overwrite {
             if tree.len() > 0 {
-                tree.truncate(0).await.map_err(map_random_access_err)?;
+                tree.truncate(0).await?;
             }
             if data.len() > 0 {
-                data.truncate(0).await.map_err(map_random_access_err)?;
+                data.truncate(0).await?;
             }
             if bitfield.len() > 0 {
-                bitfield.truncate(0).await.map_err(map_random_access_err)?;
+                bitfield.truncate(0).await?;
             }
             if oplog.len() > 0 {
-                oplog.truncate(0).await.map_err(map_random_access_err)?;
+                oplog.truncate(0).await?;
             }
         }
 
@@ -162,7 +136,7 @@ impl Storage {
                                 })
                             }
                         }
-                        Err(e) => Err(map_random_access_err(e)),
+                        Err(e) => Err(e.into()),
                     }?;
                     infos.push(info);
                 }
@@ -200,10 +174,7 @@ impl Storage {
                 StoreInfoType::Content => {
                     if !info.miss {
                         if let Some(data) = &info.data {
-                            storage
-                                .write(info.index, data)
-                                .await
-                                .map_err(map_random_access_err)?;
+                            storage.write(info.index, data).await?;
                         }
                     } else {
                         storage
@@ -211,16 +182,12 @@ impl Storage {
                                 info.index,
                                 info.length.expect("When deleting, length must be given"),
                             )
-                            .await
-                            .map_err(map_random_access_err)?;
+                            .await?;
                     }
                 }
                 StoreInfoType::Size => {
                     if info.miss {
-                        storage
-                            .truncate(info.index)
-                            .await
-                            .map_err(map_random_access_err)?;
+                        storage.truncate(info.index).await?;
                     } else {
                         panic!("Flushing a size that isn't miss, is not supported");
                     }
