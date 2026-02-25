@@ -155,11 +155,11 @@ impl Storage {
 
     /// Flush info to storage. Convenience method to `flush_infos`.
     pub(crate) async fn flush_info(&self, slice: StoreInfo) -> Result<(), HypercoreError> {
-        self.flush_infos(&[slice]).await
+        self.flush_infos(vec![slice]).await
     }
 
     /// Flush infos to storage
-    pub(crate) async fn flush_infos(&self, infos: &[StoreInfo]) -> Result<(), HypercoreError> {
+    pub(crate) async fn flush_infos(&self, infos: Vec<StoreInfo>) -> Result<(), HypercoreError> {
         if infos.is_empty() {
             return Ok(());
         }
@@ -270,7 +270,7 @@ mod test {
 
         // Write to two different stores, read back together
         storage
-            .flush_infos(&[
+            .flush_infos(vec![
                 StoreInfo::new_content(Store::Data, 0, b"block0"),
                 StoreInfo::new_content(Store::Bitfield, 0, b"bits"),
             ])

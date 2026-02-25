@@ -121,7 +121,7 @@ impl Hypercore {
             }
         };
         storage
-            .flush_infos(&oplog_open_outcome.infos_to_flush)
+            .flush_infos(Vec::from(oplog_open_outcome.infos_to_flush))
             .await?;
 
         // Open/create tree
@@ -323,7 +323,9 @@ impl Hypercore {
             false,
             &self.header,
         )?;
-        self.storage.flush_infos(&outcome.infos_to_flush).await?;
+        self.storage
+            .flush_infos(Vec::from(outcome.infos_to_flush))
+            .await?;
         self.header = outcome.header;
 
         // Write to bitfield
@@ -411,7 +413,7 @@ impl Hypercore {
         }
         // Write to oplog
         let infos_to_flush = self.oplog.clear(start, end)?;
-        self.storage.flush_infos(&infos_to_flush).await?;
+        self.storage.flush_infos(Vec::from(infos_to_flush)).await?;
 
         // Set bitfield
         self.bitfield.set_range(start, end - start, false);
@@ -563,7 +565,9 @@ impl Hypercore {
             false,
             &self.header,
         )?;
-        self.storage.flush_infos(&outcome.infos_to_flush).await?;
+        self.storage
+            .flush_infos(Vec::from(outcome.infos_to_flush))
+            .await?;
         self.header = outcome.header;
 
         if let Some(bitfield_update) = &bitfield_update {
@@ -751,11 +755,11 @@ impl Hypercore {
         clear_traces: bool,
     ) -> Result<(), HypercoreError> {
         let infos = self.bitfield.flush();
-        self.storage.flush_infos(&infos).await?;
+        self.storage.flush_infos(Vec::from(infos)).await?;
         let infos = self.tree.flush();
-        self.storage.flush_infos(&infos).await?;
+        self.storage.flush_infos(Vec::from(infos)).await?;
         let infos = self.oplog.flush(&self.header, clear_traces)?;
-        self.storage.flush_infos(&infos).await?;
+        self.storage.flush_infos(Vec::from(infos)).await?;
         Ok(())
     }
 }
