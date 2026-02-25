@@ -240,3 +240,52 @@ impl Storage {
         Self::open(storage, overwrite).await
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::common::{StoreInfo, StoreInfoInstruction};
+
+    #[tokio::test]
+    async fn test_storage() -> Result<(), Box<dyn std::error::Error>> {
+        let storage = Storage::new_memory().await?;
+
+        let data = b"hello hypercore";
+
+        // Write to tree store
+        storage
+            .flush_info(StoreInfo::new_content(Store::Tree, 0, data))
+            .await?;
+
+        // Read it back
+        let info = storage
+            .read_info(StoreInfoInstruction::new_content(
+                Store::Tree,
+                0,
+                data.len() as u64,
+            ))
+            .await?;
+
+        assert_eq!(info.data.as_deref(), Some(data.as_slice()));
+
+        // Write to two different stores, read back together
+        storage
+            .flush_infos(&[
+                StoreInfo::new_content(Store::Data, 0, b"block0"),
+                StoreInfo::new_content(Store::Bitfield, 0, b"bits"),
+            ])
+            .await?;
+
+        let infos = storage
+            .read_infos(&[
+                StoreInfoInstruction::new_content(Store::Data, 0, 6),
+                StoreInfoInstruction::new_content(Store::Bitfield, 0, 4),
+            ])
+            .await?;
+
+        assert_eq!(infos[0].data.as_deref(), Some(b"block0".as_slice()));
+        assert_eq!(infos[1].data.as_deref(), Some(b"bits".as_slice()));
+
+        Ok(())
+    }
+}
