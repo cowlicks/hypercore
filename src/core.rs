@@ -133,7 +133,7 @@ impl Hypercore {
         )? {
             Either::Right(value) => value,
             Either::Left(instructions) => {
-                let infos = storage.read_infos(&instructions).await?;
+                let infos = storage.read_infos(Vec::from(instructions)).await?;
                 match MerkleTree::open(
                     &oplog_open_outcome.header.tree,
                     Some(&infos),
@@ -196,7 +196,7 @@ impl Hypercore {
                         match tree.truncate(tree_upgrade.length, tree_upgrade.fork, None)? {
                             Either::Right(value) => value,
                             Either::Left(instructions) => {
-                                let infos = storage.read_infos(&instructions).await?;
+                                let infos = storage.read_infos(Vec::from(instructions)).await?;
                                 match tree.truncate(
                                     tree_upgrade.length,
                                     tree_upgrade.fork,
@@ -440,7 +440,10 @@ impl Hypercore {
         let clear_offset = match self.tree.byte_offset(start, None)? {
             Either::Right(value) => value,
             Either::Left(instructions) => {
-                let new_infos = self.storage.read_infos_to_vec(&instructions).await?;
+                let new_infos = self
+                    .storage
+                    .read_infos_to_vec(Vec::from(instructions))
+                    .await?;
                 infos.extend(new_infos);
                 match self.tree.byte_offset(start, Some(&infos))? {
                     Either::Right(value) => value,
@@ -524,7 +527,10 @@ impl Hypercore {
                 {
                     Either::Right(value) => value,
                     Either::Left(instructions) => {
-                        let infos = self.storage.read_infos_to_vec(&instructions).await?;
+                        let infos = self
+                            .storage
+                            .read_infos_to_vec(Vec::from(instructions))
+                            .await?;
                         match self.tree.byte_offset_in_changeset(
                             block.index,
                             &changeset,
@@ -623,7 +629,11 @@ impl Hypercore {
                 let mut instructions = instructions;
                 let mut infos: Vec<StoreInfo> = vec![];
                 loop {
-                    infos.extend(self.storage.read_infos_to_vec(&instructions).await?);
+                    infos.extend(
+                        self.storage
+                            .read_infos_to_vec(Vec::from(instructions))
+                            .await?,
+                    );
                     match self.tree.missing_nodes(merkle_tree_index, Some(&infos))? {
                         Either::Right(value) => {
                             return Ok(value);
@@ -665,7 +675,11 @@ impl Hypercore {
                 let mut instructions = instructions;
                 let mut infos: Vec<StoreInfo> = vec![];
                 loop {
-                    infos.extend(self.storage.read_infos_to_vec(&instructions).await?);
+                    infos.extend(
+                        self.storage
+                            .read_infos_to_vec(Vec::from(instructions))
+                            .await?,
+                    );
                     match self.tree.byte_range(index, Some(&infos))? {
                         Either::Right(value) => {
                             return Ok(value);
@@ -698,7 +712,11 @@ impl Hypercore {
                 let mut instructions = instructions;
                 let mut infos: Vec<StoreInfo> = vec![];
                 loop {
-                    infos.extend(self.storage.read_infos_to_vec(&instructions).await?);
+                    infos.extend(
+                        self.storage
+                            .read_infos_to_vec(Vec::from(instructions))
+                            .await?,
+                    );
                     match self.tree.create_valueless_proof(
                         block.as_ref(),
                         hash.as_ref(),
@@ -724,7 +742,10 @@ impl Hypercore {
         match self.tree.verify_proof(proof, &self.key_pair.public, None)? {
             Either::Right(value) => Ok(value),
             Either::Left(instructions) => {
-                let infos = self.storage.read_infos_to_vec(&instructions).await?;
+                let infos = self
+                    .storage
+                    .read_infos_to_vec(Vec::from(instructions))
+                    .await?;
                 match self
                     .tree
                     .verify_proof(proof, &self.key_pair.public, Some(&infos))?

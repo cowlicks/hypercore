@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use std::{sync::Arc, time::{Duration, Instant}};
 
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use hypercore::{Hypercore, HypercoreBuilder, HypercoreError, Storage};
@@ -19,7 +19,7 @@ async fn create_hypercore(page_size: usize) -> Result<Hypercore, HypercoreError>
     let storage = Storage::open(
         |_| {
             Box::pin(async move {
-                Ok(Box::new(RandomAccessMemory::new(page_size)) as Box<dyn StorageTraits + Send>)
+                Ok(Arc::new(RandomAccessMemory::new(page_size)) as Arc<dyn StorageTraits>)
             })
         },
         false,
@@ -38,7 +38,7 @@ async fn create_hypercore(page_size: usize) -> Result<Hypercore, HypercoreError>
     let storage = Storage::open(
         |_| {
             Box::pin(async move {
-                Ok(Box::new(RandomAccessMemory::new(page_size)) as Box<dyn StorageTraits + Send>)
+                Ok(Arc::new(RandomAccessMemory::new(page_size)) as Arc<dyn StorageTraits>)
             })
         },
         false,
