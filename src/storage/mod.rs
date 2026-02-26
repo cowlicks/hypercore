@@ -254,6 +254,21 @@ mod test {
     use crate::common::{StoreInfo, StoreInfoInstruction};
 
     #[tokio::test]
+    async fn test_futures_are_owned() -> Result<(), Box<dyn std::error::Error>> {
+        let fut = {
+            let storage = Storage::new_memory().await?;
+
+            let data = b"hello hypercore";
+
+            // Write to tree store
+            storage.flush_info(StoreInfo::new_content(Store::Tree, 0, data))
+        };
+        fut.await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn test_storage() -> Result<(), Box<dyn std::error::Error>> {
         let storage = Storage::new_memory().await?;
 

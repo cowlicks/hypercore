@@ -1,7 +1,7 @@
 //! Hypercore's main abstraction. Exposes an append-only, secure log structure.
-use ed25519_dalek::Signature;
+mod inner;
+
 use futures::future::Either;
-use std::fmt::Debug;
 #[cfg(feature = "replication")]
 use std::sync::Mutex;
 use tracing::instrument;
@@ -9,16 +9,14 @@ use tracing::instrument;
 #[cfg(feature = "cache")]
 use crate::common::cache::CacheOptions;
 use crate::{
-    bitfield::Bitfield,
-    common::{BitfieldUpdate, HypercoreError, NodeByteRange, StoreInfo, ValuelessProof},
-    crypto::{PartialKeypair, generate_signing_key},
-    data::BlockStore,
-    oplog::{Header, MAX_OPLOG_ENTRIES_BYTE_SIZE, Oplog},
+    common::{BitfieldUpdate, HypercoreError, StoreInfo},
+    crypto::PartialKeypair,
     storage::Storage,
-    tree::{MerkleTree, MerkleTreeChangeset},
 };
-
 use hypercore_schema::{Proof, RequestBlock, RequestSeek, RequestUpgrade};
+
+pub(crate) use inner::HypercoreInner;
+use inner::update_contiguous_length;
 
 #[derive(Debug)]
 pub(crate) struct HypercoreOptions {
@@ -42,16 +40,7 @@ impl HypercoreOptions {
 /// Hypercore is an append-only log structure.
 #[derive(Debug)]
 pub struct Hypercore {
-    pub(crate) key_pair: PartialKeypair,
-    pub(crate) storage: Storage,
-    pub(crate) oplog: Oplog,
-    pub(crate) tree: MerkleTree,
-    pub(crate) block_store: BlockStore,
-    pub(crate) bitfield: Bitfield,
-    skip_flush_count: u8, // autoFlush in Javascript
-    header: Header,
-    #[cfg(feature = "replication")]
-    events: crate::replication::events::Events,
+    pub(crate) inner: HypercoreInner,
     #[cfg(feature = "replication")]
     pub(crate) peers: Vec<Mutex<crate::replication::Peer>>,
 }
@@ -85,176 +74,10 @@ impl Hypercore {
     /// Creates/opens new hypercore using given storage and options
     pub(crate) async fn new(
         storage: Storage,
-        mut options: HypercoreOptions,
+        options: HypercoreOptions,
     ) -> Result<Hypercore, HypercoreError> {
-        let key_pair: Option<PartialKeypair> = if options.open {
-            if options.key_pair.is_some() {
-                return Err(HypercoreError::BadArgument {
-                    context: "Key pair can not be used when building an openable hypercore"
-                        .to_string(),
-                });
-            }
-            None
-        } else {
-            Some(options.key_pair.take().unwrap_or_else(|| {
-                let signing_key = generate_signing_key();
-                PartialKeypair {
-                    public: signing_key.verifying_key(),
-                    secret: Some(signing_key),
-                }
-            }))
-        };
-
-        // Open/create oplog
-        let mut oplog_open_outcome = match Oplog::open(&key_pair, None)? {
-            Either::Right(value) => value,
-            Either::Left(instruction) => {
-                let info = storage.read_info(instruction).await?;
-                match Oplog::open(&key_pair, Some(info))? {
-                    Either::Right(value) => value,
-                    Either::Left(_) => {
-                        return Err(HypercoreError::InvalidOperation {
-                            context: "Could not open oplog".to_string(),
-                        });
-                    }
-                }
-            }
-        };
-        storage
-            .flush_infos(Vec::from(oplog_open_outcome.infos_to_flush))
-            .await?;
-
-        // Open/create tree
-        let mut tree = match MerkleTree::open(
-            &oplog_open_outcome.header.tree,
-            None,
-            #[cfg(feature = "cache")]
-            &options.node_cache_options,
-        )? {
-            Either::Right(value) => value,
-            Either::Left(instructions) => {
-                let infos = storage.read_infos(Vec::from(instructions)).await?;
-                match MerkleTree::open(
-                    &oplog_open_outcome.header.tree,
-                    Some(&infos),
-                    #[cfg(feature = "cache")]
-                    &options.node_cache_options,
-                )? {
-                    Either::Right(value) => value,
-                    Either::Left(_) => {
-                        return Err(HypercoreError::InvalidOperation {
-                            context: "Could not open tree".to_string(),
-                        });
-                    }
-                }
-            }
-        };
-
-        // Create block store instance
-        let block_store = BlockStore::default();
-
-        // Open bitfield
-        let mut bitfield = match Bitfield::open(None) {
-            Either::Right(value) => value,
-            Either::Left(instruction) => {
-                let info = storage.read_info(instruction).await?;
-                match Bitfield::open(Some(info)) {
-                    Either::Right(value) => value,
-                    Either::Left(instruction) => {
-                        let info = storage.read_info(instruction).await?;
-                        match Bitfield::open(Some(info)) {
-                            Either::Right(value) => value,
-                            Either::Left(_) => {
-                                return Err(HypercoreError::InvalidOperation {
-                                    context: "Could not open bitfield".to_string(),
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-        };
-
-        // Process entries stored only to the oplog and not yet flushed into bitfield or tree
-        if let Some(entries) = oplog_open_outcome.entries {
-            for entry in entries.iter() {
-                for node in &entry.tree_nodes {
-                    tree.add_node(node.clone());
-                }
-
-                if let Some(bitfield_update) = &entry.bitfield {
-                    bitfield.update(bitfield_update);
-                    update_contiguous_length(
-                        &mut oplog_open_outcome.header,
-                        &bitfield,
-                        bitfield_update,
-                    );
-                }
-                if let Some(tree_upgrade) = &entry.tree_upgrade {
-                    // TODO: Generalize Either response stack
-                    let mut changeset =
-                        match tree.truncate(tree_upgrade.length, tree_upgrade.fork, None)? {
-                            Either::Right(value) => value,
-                            Either::Left(instructions) => {
-                                let infos = storage.read_infos(Vec::from(instructions)).await?;
-                                match tree.truncate(
-                                    tree_upgrade.length,
-                                    tree_upgrade.fork,
-                                    Some(&infos),
-                                )? {
-                                    Either::Right(value) => value,
-                                    Either::Left(_) => {
-                                        return Err(HypercoreError::InvalidOperation {
-                                            context: format!(
-                                                "Could not truncate tree to length {}",
-                                                tree_upgrade.length
-                                            ),
-                                        });
-                                    }
-                                }
-                            }
-                        };
-                    changeset.ancestors = tree_upgrade.ancestors;
-                    changeset.hash = Some(changeset.hash());
-                    changeset.signature =
-                        Some(Signature::try_from(&*tree_upgrade.signature).map_err(|_| {
-                            HypercoreError::InvalidSignature {
-                                context: "Could not parse changeset signature".to_string(),
-                            }
-                        })?);
-
-                    // Update the header with this changeset to make in-memory value match that
-                    // of the stored value.
-                    oplog_open_outcome.oplog.update_header_with_changeset(
-                        &changeset,
-                        None,
-                        &mut oplog_open_outcome.header,
-                    )?;
-
-                    // TODO: Skip reorg hints for now, seems to only have to do with replication
-                    // addReorgHint(header.hints.reorgs, tree, batch)
-
-                    // Commit changeset to in-memory tree
-                    tree.commit(changeset)?;
-                }
-            }
-        }
-
-        let oplog = oplog_open_outcome.oplog;
-        let header = oplog_open_outcome.header;
-        let key_pair = header.key_pair.clone();
-
         Ok(Hypercore {
-            key_pair,
-            storage,
-            oplog,
-            tree,
-            block_store,
-            bitfield,
-            header,
-            skip_flush_count: 0,
-            #[cfg(feature = "replication")]
-            events: crate::replication::events::Events::new(),
+            inner: HypercoreInner::new(storage, options).await?,
             #[cfg(feature = "replication")]
             peers: Default::default(),
         })
@@ -262,13 +85,7 @@ impl Hypercore {
 
     /// Gets basic info about the Hypercore
     pub fn info(&self) -> Info {
-        Info {
-            length: self.tree.length,
-            byte_length: self.tree.byte_length,
-            contiguous_length: self.header.hints.contiguous_length,
-            fork: self.tree.fork,
-            writeable: self.key_pair.secret.is_some(),
-        }
+        self.inner.info()
     }
 
     /// Appends a data slice to the hypercore.
@@ -277,28 +94,22 @@ impl Hypercore {
         self.append_batch(&[data]).await
     }
 
-    fn append_outcome(&self) -> AppendOutcome {
-        AppendOutcome {
-            length: self.tree.length,
-            byte_length: self.tree.byte_length,
-        }
-    }
     /// Appends a given batch of data slices to the hypercore.
     #[instrument(err, skip_all, fields(batch_len = batch.as_ref().len()))]
     pub async fn append_batch<A: AsRef<[u8]>, B: AsRef<[A]>>(
         &mut self,
         batch: B,
     ) -> Result<AppendOutcome, HypercoreError> {
-        let secret_key = match &self.key_pair.secret {
+        let secret_key = match &self.inner.key_pair.secret {
             Some(key) => key,
             None => return Err(HypercoreError::NotWritable),
         };
 
         if batch.as_ref().is_empty() {
-            return Ok(self.append_outcome());
+            return Ok(self.inner.append_outcome());
         }
         // Create a changeset for the tree
-        let mut changeset = self.tree.changeset();
+        let mut changeset = self.inner.tree.changeset();
         let mut batch_length: usize = 0;
         for data in batch.as_ref().iter() {
             batch_length += changeset.append(data.as_ref());
@@ -306,10 +117,11 @@ impl Hypercore {
         changeset.hash_and_sign(secret_key);
 
         // Write the received data to the block store
-        let info =
-            self.block_store
-                .append_batch(batch.as_ref(), batch_length, self.tree.byte_length);
-        self.storage.flush_info(info).await?;
+        let info = self
+            .inner
+            .block_store
+            .append_batch(batch.as_ref(), batch_length, self.inner.tree.byte_length);
+        self.inner.storage.flush_info(info).await?;
 
         // Append the changeset to the Oplog
         let bitfield_update = BitfieldUpdate {
@@ -317,29 +129,34 @@ impl Hypercore {
             start: changeset.ancestors,
             length: changeset.batch_length,
         };
-        let outcome = self.oplog.append_changeset(
+        let outcome = self.inner.oplog.append_changeset(
             &changeset,
             Some(bitfield_update.clone()),
             false,
-            &self.header,
+            &self.inner.header,
         )?;
-        self.storage
+        self.inner
+            .storage
             .flush_infos(Vec::from(outcome.infos_to_flush))
             .await?;
-        self.header = outcome.header;
+        self.inner.header = outcome.header;
 
         // Write to bitfield
-        self.bitfield.update(&bitfield_update);
+        self.inner.bitfield.update(&bitfield_update);
 
         // Contiguous length is known only now
-        update_contiguous_length(&mut self.header, &self.bitfield, &bitfield_update);
+        update_contiguous_length(
+            &mut self.inner.header,
+            &self.inner.bitfield,
+            &bitfield_update,
+        );
 
         // Commit changeset to in-memory tree
-        self.tree.commit(changeset)?;
+        self.inner.tree.commit(changeset)?;
 
         // Now ready to flush
-        if self.should_flush_bitfield_and_tree_and_oplog() {
-            self.flush_bitfield_and_tree_and_oplog(false).await?;
+        if self.inner.should_flush_bitfield_and_tree_and_oplog() {
+            self.inner.flush_bitfield_and_tree_and_oplog(false).await?;
         }
 
         #[cfg(feature = "replication")]
@@ -347,50 +164,54 @@ impl Hypercore {
             use tracing::trace;
 
             trace!(bitfield_update = ?bitfield_update, "Hppercore.append_batch emit DataUpgrade & Have");
-            let _ = self.events.send(crate::replication::events::DataUpgrade {});
             let _ = self
+                .inner
+                .events
+                .send(crate::replication::events::DataUpgrade {});
+            let _ = self
+                .inner
                 .events
                 .send(crate::replication::events::Have::from(&bitfield_update));
         }
 
-        Ok(self.append_outcome())
+        Ok(self.inner.append_outcome())
     }
 
     #[cfg(feature = "replication")]
     /// Subscribe to core events relevant to replication
     pub fn event_subscribe(&self) -> async_broadcast::Receiver<crate::replication::events::Event> {
-        self.events.channel.new_receiver()
+        self.inner.event_subscribe()
     }
 
     /// Check if core has the block at the given `index` locally
     #[instrument(ret, skip(self))]
     pub fn has(&self, index: u64) -> bool {
-        self.bitfield.get(index)
+        self.inner.has(index)
     }
 
     /// Read value at given index, if any.
     #[instrument(err, skip(self))]
     pub async fn get(&self, index: u64) -> Result<Option<Vec<u8>>, HypercoreError> {
-        if !self.bitfield.get(index) {
+        if !self.inner.bitfield.get(index) {
             #[cfg(feature = "replication")]
             // if not in this core, emit Event::Get(index)
             {
                 use tracing::trace;
 
                 trace!(index = index, "Hppercore emit 'get' event");
-                self.events.send_on_get(index);
+                self.inner.events.send_on_get(index);
             }
             return Ok(None);
         }
 
-        let byte_range = self.byte_range(index, None).await?;
+        let byte_range = self.inner.byte_range(index, None).await?;
 
         // TODO: Generalize Either response stack
-        let data = match self.block_store.read(&byte_range, None) {
+        let data = match self.inner.block_store.read(&byte_range, None) {
             Either::Right(value) => value,
             Either::Left(instruction) => {
-                let info = self.storage.read_info(instruction).await?;
-                match self.block_store.read(&byte_range, Some(info)) {
+                let info = self.inner.storage.read_info(instruction).await?;
+                match self.inner.block_store.read(&byte_range, Some(info)) {
                     Either::Right(value) => value,
                     Either::Left(_) => {
                         return Err(HypercoreError::InvalidOperation {
@@ -412,40 +233,44 @@ impl Hypercore {
             return Ok(());
         }
         // Write to oplog
-        let infos_to_flush = self.oplog.clear(start, end)?;
-        self.storage.flush_infos(Vec::from(infos_to_flush)).await?;
+        let infos_to_flush = self.inner.oplog.clear(start, end)?;
+        self.inner
+            .storage
+            .flush_infos(Vec::from(infos_to_flush))
+            .await?;
 
         // Set bitfield
-        self.bitfield.set_range(start, end - start, false);
+        self.inner.bitfield.set_range(start, end - start, false);
 
         // Set contiguous length
-        if start < self.header.hints.contiguous_length {
-            self.header.hints.contiguous_length = start;
+        if start < self.inner.header.hints.contiguous_length {
+            self.inner.header.hints.contiguous_length = start;
         }
 
         // Find the biggest hole that can be punched into the data
-        let start = if let Some(index) = self.bitfield.last_index_of(true, start) {
+        let start = if let Some(index) = self.inner.bitfield.last_index_of(true, start) {
             index + 1
         } else {
             0
         };
-        let end = if let Some(index) = self.bitfield.index_of(true, end) {
+        let end = if let Some(index) = self.inner.bitfield.index_of(true, end) {
             index
         } else {
-            self.tree.length
+            self.inner.tree.length
         };
 
         // Find byte offset for first value
         let mut infos: Vec<StoreInfo> = Vec::new();
-        let clear_offset = match self.tree.byte_offset(start, None)? {
+        let clear_offset = match self.inner.tree.byte_offset(start, None)? {
             Either::Right(value) => value,
             Either::Left(instructions) => {
                 let new_infos = self
+                    .inner
                     .storage
                     .read_infos_to_vec(Vec::from(instructions))
                     .await?;
                 infos.extend(new_infos);
-                match self.tree.byte_offset(start, Some(&infos))? {
+                match self.inner.tree.byte_offset(start, Some(&infos))? {
                     Either::Right(value) => value,
                     Either::Left(_) => {
                         return Err(HypercoreError::InvalidOperation {
@@ -457,17 +282,17 @@ impl Hypercore {
         };
 
         // Find byte range for last value
-        let last_byte_range = self.byte_range(end - 1, Some(&infos)).await?;
+        let last_byte_range = self.inner.byte_range(end - 1, Some(&infos)).await?;
 
         let clear_length = (last_byte_range.index + last_byte_range.length) - clear_offset;
 
         // Clear blocks
-        let info_to_flush = self.block_store.clear(clear_offset, clear_length);
-        self.storage.flush_info(info_to_flush).await?;
+        let info_to_flush = self.inner.block_store.clear(clear_offset, clear_length);
+        self.inner.storage.flush_info(info_to_flush).await?;
 
         // Now ready to flush
-        if self.should_flush_bitfield_and_tree_and_oplog() {
-            self.flush_bitfield_and_tree_and_oplog(false).await?;
+        if self.inner.should_flush_bitfield_and_tree_and_oplog() {
+            self.inner.flush_bitfield_and_tree_and_oplog(false).await?;
         }
 
         Ok(())
@@ -475,7 +300,7 @@ impl Hypercore {
 
     /// Access the key pair.
     pub fn key_pair(&self) -> &PartialKeypair {
-        &self.key_pair
+        self.inner.key_pair()
     }
 
     /// Create a proof for given request
@@ -488,6 +313,7 @@ impl Hypercore {
         upgrade: Option<RequestUpgrade>,
     ) -> Result<Option<Proof>, HypercoreError> {
         let valueless_proof = self
+            .inner
             .create_valueless_proof(block, hash, seek, upgrade)
             .await?;
         let value: Option<Vec<u8>> = if let Some(block) = valueless_proof.block.as_ref() {
@@ -508,11 +334,11 @@ impl Hypercore {
     /// possible to apply.
     #[instrument(skip_all)]
     pub async fn verify_and_apply_proof(&mut self, proof: &Proof) -> Result<bool, HypercoreError> {
-        if proof.fork != self.tree.fork {
+        if proof.fork != self.inner.tree.fork {
             return Ok(false);
         }
-        let changeset = self.verify_proof(proof).await?;
-        if !self.tree.commitable(&changeset) {
+        let changeset = self.inner.verify_proof(proof).await?;
+        if !self.inner.tree.commitable(&changeset) {
             return Ok(false);
         }
 
@@ -522,16 +348,18 @@ impl Hypercore {
         let bitfield_update: Option<BitfieldUpdate> = if let Some(block) = &proof.block.as_ref() {
             let byte_offset =
                 match self
+                    .inner
                     .tree
                     .byte_offset_in_changeset(block.index, &changeset, None)?
                 {
                     Either::Right(value) => value,
                     Either::Left(instructions) => {
                         let infos = self
+                            .inner
                             .storage
                             .read_infos_to_vec(Vec::from(instructions))
                             .await?;
-                        match self.tree.byte_offset_in_changeset(
+                        match self.inner.tree.byte_offset_in_changeset(
                             block.index,
                             &changeset,
                             Some(&infos),
@@ -550,8 +378,8 @@ impl Hypercore {
                 };
 
             // Write the value to the block store
-            let info_to_flush = self.block_store.put(&block.value, byte_offset);
-            self.storage.flush_info(info_to_flush).await?;
+            let info_to_flush = self.inner.block_store.put(&block.value, byte_offset);
+            self.inner.storage.flush_info(info_to_flush).await?;
 
             // Return a bitfield update for the given value
             Some(BitfieldUpdate {
@@ -565,43 +393,52 @@ impl Hypercore {
         };
 
         // Append the changeset to the Oplog
-        let outcome = self.oplog.append_changeset(
+        let outcome = self.inner.oplog.append_changeset(
             &changeset,
             bitfield_update.clone(),
             false,
-            &self.header,
+            &self.inner.header,
         )?;
-        self.storage
+        self.inner
+            .storage
             .flush_infos(Vec::from(outcome.infos_to_flush))
             .await?;
-        self.header = outcome.header;
+        self.inner.header = outcome.header;
 
         if let Some(bitfield_update) = &bitfield_update {
             // Write to bitfield
-            self.bitfield.update(bitfield_update);
+            self.inner.bitfield.update(bitfield_update);
 
             // Contiguous length is known only now
-            update_contiguous_length(&mut self.header, &self.bitfield, bitfield_update);
+            update_contiguous_length(
+                &mut self.inner.header,
+                &self.inner.bitfield,
+                bitfield_update,
+            );
         }
 
         // Commit changeset to in-memory tree
-        self.tree.commit(changeset)?;
+        self.inner.tree.commit(changeset)?;
 
         // Now ready to flush
-        if self.should_flush_bitfield_and_tree_and_oplog() {
-            self.flush_bitfield_and_tree_and_oplog(false).await?;
+        if self.inner.should_flush_bitfield_and_tree_and_oplog() {
+            self.inner.flush_bitfield_and_tree_and_oplog(false).await?;
         }
 
         #[cfg(feature = "replication")]
         {
             if proof.upgrade.is_some() {
                 // Notify replicator if we receieved an upgrade
-                let _ = self.events.send(crate::replication::events::DataUpgrade {});
+                let _ = self
+                    .inner
+                    .events
+                    .send(crate::replication::events::DataUpgrade {});
             }
 
             // Notify replicator if we receieved a bitfield update
             if let Some(ref bitfield) = bitfield_update {
                 let _ = self
+                    .inner
                     .events
                     .send(crate::replication::events::Have::from(bitfield));
             }
@@ -613,38 +450,21 @@ impl Hypercore {
     /// synchronization.
     #[instrument(err, skip(self))]
     pub async fn missing_nodes(&self, index: u64) -> Result<u64, HypercoreError> {
-        self.missing_nodes_from_merkle_tree_index(index * 2).await
+        self.inner
+            .missing_nodes_from_merkle_tree_index(index * 2)
+            .await
     }
 
-    /// Get missing nodes using a merkle tree index. Advanced variant of missing_nodex
+    /// Get missing nodes using a merkle tree index. Advanced variant of missing_nodes
     /// that allow for special cases of searching directly from the merkle tree.
     #[instrument(err, skip(self))]
     pub async fn missing_nodes_from_merkle_tree_index(
         &self,
         merkle_tree_index: u64,
     ) -> Result<u64, HypercoreError> {
-        match self.tree.missing_nodes(merkle_tree_index, None)? {
-            Either::Right(value) => Ok(value),
-            Either::Left(instructions) => {
-                let mut instructions = instructions;
-                let mut infos: Vec<StoreInfo> = vec![];
-                loop {
-                    infos.extend(
-                        self.storage
-                            .read_infos_to_vec(Vec::from(instructions))
-                            .await?,
-                    );
-                    match self.tree.missing_nodes(merkle_tree_index, Some(&infos))? {
-                        Either::Right(value) => {
-                            return Ok(value);
-                        }
-                        Either::Left(new_instructions) => {
-                            instructions = new_instructions;
-                        }
-                    }
-                }
-            }
-        }
+        self.inner
+            .missing_nodes_from_merkle_tree_index(merkle_tree_index)
+            .await
     }
 
     /// Makes the hypercore read-only by deleting the secret key. Returns true if the
@@ -653,164 +473,22 @@ impl Hypercore {
     /// been stored.
     #[instrument(err, skip_all)]
     pub async fn make_read_only(&mut self) -> Result<bool, HypercoreError> {
-        if self.key_pair.secret.is_some() {
-            self.key_pair.secret = None;
-            self.header.key_pair.secret = None;
+        if self.inner.key_pair.secret.is_some() {
+            self.inner.key_pair.secret = None;
+            self.inner.header.key_pair.secret = None;
             // Need to flush clearing traces to make sure both oplog slots are cleared
-            self.flush_bitfield_and_tree_and_oplog(true).await?;
+            self.inner.flush_bitfield_and_tree_and_oplog(true).await?;
             Ok(true)
         } else {
             Ok(false)
         }
-    }
-
-    async fn byte_range(
-        &self,
-        index: u64,
-        initial_infos: Option<&[StoreInfo]>,
-    ) -> Result<NodeByteRange, HypercoreError> {
-        match self.tree.byte_range(index, initial_infos)? {
-            Either::Right(value) => Ok(value),
-            Either::Left(instructions) => {
-                let mut instructions = instructions;
-                let mut infos: Vec<StoreInfo> = vec![];
-                loop {
-                    infos.extend(
-                        self.storage
-                            .read_infos_to_vec(Vec::from(instructions))
-                            .await?,
-                    );
-                    match self.tree.byte_range(index, Some(&infos))? {
-                        Either::Right(value) => {
-                            return Ok(value);
-                        }
-                        Either::Left(new_instructions) => {
-                            instructions = new_instructions;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    async fn create_valueless_proof(
-        &self,
-        block: Option<RequestBlock>,
-        hash: Option<RequestBlock>,
-        seek: Option<RequestSeek>,
-        upgrade: Option<RequestUpgrade>,
-    ) -> Result<ValuelessProof, HypercoreError> {
-        match self.tree.create_valueless_proof(
-            block.as_ref(),
-            hash.as_ref(),
-            seek.as_ref(),
-            upgrade.as_ref(),
-            None,
-        )? {
-            Either::Right(value) => Ok(value),
-            Either::Left(instructions) => {
-                let mut instructions = instructions;
-                let mut infos: Vec<StoreInfo> = vec![];
-                loop {
-                    infos.extend(
-                        self.storage
-                            .read_infos_to_vec(Vec::from(instructions))
-                            .await?,
-                    );
-                    match self.tree.create_valueless_proof(
-                        block.as_ref(),
-                        hash.as_ref(),
-                        seek.as_ref(),
-                        upgrade.as_ref(),
-                        Some(&infos),
-                    )? {
-                        Either::Right(value) => {
-                            return Ok(value);
-                        }
-                        Either::Left(new_instructions) => {
-                            instructions = new_instructions;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /// Verify a proof received from a peer. Returns a changeset that should be
-    /// applied.
-    async fn verify_proof(&self, proof: &Proof) -> Result<MerkleTreeChangeset, HypercoreError> {
-        match self.tree.verify_proof(proof, &self.key_pair.public, None)? {
-            Either::Right(value) => Ok(value),
-            Either::Left(instructions) => {
-                let infos = self
-                    .storage
-                    .read_infos_to_vec(Vec::from(instructions))
-                    .await?;
-                match self
-                    .tree
-                    .verify_proof(proof, &self.key_pair.public, Some(&infos))?
-                {
-                    Either::Right(value) => Ok(value),
-                    Either::Left(_) => Err(HypercoreError::InvalidOperation {
-                        context: "Could not verify proof from tree".to_string(),
-                    }),
-                }
-            }
-        }
-    }
-
-    fn should_flush_bitfield_and_tree_and_oplog(&mut self) -> bool {
-        if self.skip_flush_count == 0
-            || self.oplog.entries_byte_length >= MAX_OPLOG_ENTRIES_BYTE_SIZE
-        {
-            self.skip_flush_count = 3;
-            true
-        } else {
-            self.skip_flush_count -= 1;
-            false
-        }
-    }
-
-    async fn flush_bitfield_and_tree_and_oplog(
-        &mut self,
-        clear_traces: bool,
-    ) -> Result<(), HypercoreError> {
-        let infos = self.bitfield.flush();
-        self.storage.flush_infos(Vec::from(infos)).await?;
-        let infos = self.tree.flush();
-        self.storage.flush_infos(Vec::from(infos)).await?;
-        let infos = self.oplog.flush(&self.header, clear_traces)?;
-        self.storage.flush_infos(Vec::from(infos)).await?;
-        Ok(())
-    }
-}
-
-fn update_contiguous_length(
-    header: &mut Header,
-    bitfield: &Bitfield,
-    bitfield_update: &BitfieldUpdate,
-) {
-    let end = bitfield_update.start + bitfield_update.length;
-    let mut c = header.hints.contiguous_length;
-    if bitfield_update.drop {
-        if c <= end && c > bitfield_update.start {
-            c = bitfield_update.start;
-        }
-    } else if c <= end && c >= bitfield_update.start {
-        c = end;
-        while bitfield.get(c) {
-            c += 1;
-        }
-    }
-
-    if c != header.hints.contiguous_length {
-        header.hints.contiguous_length = c;
     }
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use crate::crypto::{PartialKeypair, generate_signing_key};
 
     #[async_std::test]
     async fn core_create_proof_block_only() -> Result<(), HypercoreError> {
@@ -1139,7 +817,7 @@ pub(crate) mod tests {
         let mut clone = create_hypercore_with_data_and_key_pair(
             0,
             PartialKeypair {
-                public: main.key_pair.public,
+                public: main.inner.key_pair.public,
                 secret: None,
             },
         )

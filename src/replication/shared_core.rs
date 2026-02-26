@@ -146,7 +146,7 @@ mod tests {
         let clone = create_hypercore_with_data_and_key_pair(
             0,
             PartialKeypair {
-                public: main.key_pair.public,
+                public: main.inner.key_pair.public,
                 secret: None,
             },
         )
