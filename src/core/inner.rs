@@ -1,10 +1,22 @@
+use std::{
+    future::Future,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+};
+
 use ed25519_dalek::Signature;
 use futures::future::Either;
+use random_access_storage::BoxFuture;
+use std::sync::Mutex;
 use tracing::instrument;
 
 use crate::{
     bitfield::Bitfield,
-    common::{BitfieldUpdate, HypercoreError, NodeByteRange, StoreInfo, ValuelessProof},
+    common::{
+        BitfieldUpdate, HypercoreError, NodeByteRange, StoreInfo,
+        ValuelessProof,
+    },
     crypto::{PartialKeypair, generate_signing_key},
     data::BlockStore,
     oplog::{Header, MAX_OPLOG_ENTRIES_BYTE_SIZE, Oplog},
@@ -142,8 +154,7 @@ impl HypercoreInner {
                         match tree.truncate(tree_upgrade.length, tree_upgrade.fork, None)? {
                             Either::Right(value) => value,
                             Either::Left(instructions) => {
-                                let infos =
-                                    storage.read_infos(Vec::from(instructions)).await?;
+                                let infos = storage.read_infos(Vec::from(instructions)).await?;
                                 match tree.truncate(
                                     tree_upgrade.length,
                                     tree_upgrade.fork,
@@ -244,17 +255,19 @@ impl HypercoreInner {
         }
     }
 
-    pub(crate) async fn flush_bitfield_and_tree_and_oplog(
+    pub(crate) fn flush_bitfield_and_tree_and_oplog(
         &mut self,
         clear_traces: bool,
-    ) -> Result<(), HypercoreError> {
-        let infos = self.bitfield.flush();
-        self.storage.flush_infos(Vec::from(infos)).await?;
-        let infos = self.tree.flush();
-        self.storage.flush_infos(Vec::from(infos)).await?;
-        let infos = self.oplog.flush(&self.header, clear_traces)?;
-        self.storage.flush_infos(Vec::from(infos)).await?;
-        Ok(())
+    ) -> BoxFuture<Result<(), HypercoreError>> {
+        let mut infos = vec![];
+        infos.extend(self.bitfield.flush());
+        infos.extend(self.tree.flush());
+        match self.oplog.flush(&self.header, clear_traces) {
+            Ok(opinfo) => infos.extend(opinfo),
+            Err(e) => return Box::pin(async { Err(e) }),
+        }
+
+        self.storage.flush_infos(infos)
     }
 
     pub(crate) async fn verify_proof(
@@ -377,6 +390,95 @@ impl HypercoreInner {
                             instructions = new_instructions;
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+pub(crate) struct Inner2 {
+    pub(crate) inner: Arc<Mutex<HypercoreInner>>,
+}
+
+impl Inner2 {
+    pub(crate) fn create_valueless_proof(
+        &self,
+        block: Option<RequestBlock>,
+        hash: Option<RequestBlock>,
+        seek: Option<RequestSeek>,
+        upgrade: Option<RequestUpgrade>,
+    ) -> ValuelessProofFuture {
+        ValuelessProofFuture {
+            inner: self.inner.clone(),
+            block,
+            hash,
+            seek,
+            upgrade,
+            infos: Vec::new(),
+            pending_read: None,
+        }
+    }
+}
+
+pub(crate) struct ValuelessProofFuture {
+    inner: Arc<Mutex<HypercoreInner>>,
+    block: Option<RequestBlock>,
+    hash: Option<RequestBlock>,
+    seek: Option<RequestSeek>,
+    upgrade: Option<RequestUpgrade>,
+    infos: Vec<StoreInfo>,
+    pending_read: Option<BoxFuture<Result<Vec<StoreInfo>, HypercoreError>>>,
+}
+
+impl Future for ValuelessProofFuture {
+    type Output = Result<ValuelessProof, HypercoreError>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        // ValuelessProofFuture is Unpin (all fields are Unpin), so this is safe.
+        let this = self.get_mut();
+
+        loop {
+            // Phase 1: if there's a pending storage read, drive it to completion.
+            if let Some(fut) = this.pending_read.as_mut() {
+                match fut.as_mut().poll(cx) {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                    Poll::Ready(Ok(new_infos)) => {
+                        this.infos.extend(new_infos);
+                        this.pending_read = None;
+                        // Fall through to retry create_valueless_proof.
+                    }
+                }
+            }
+
+            // Phase 2: call tree.create_valueless_proof synchronously under the lock.
+            let result = {
+                let inner = this.inner.lock().unwrap();
+                let infos_opt = if this.infos.is_empty() {
+                    None
+                } else {
+                    Some(this.infos.as_slice())
+                };
+                inner.tree.create_valueless_proof(
+                    this.block.as_ref(),
+                    this.hash.as_ref(),
+                    this.seek.as_ref(),
+                    this.upgrade.as_ref(),
+                    infos_opt,
+                )
+                // Lock is dropped here.
+            };
+
+            match result {
+                Err(e) => return Poll::Ready(Err(e)),
+                Ok(Either::Right(value)) => return Poll::Ready(Ok(value)),
+                Ok(Either::Left(instructions)) => {
+                    // Need more nodes from storage. Clone storage (cheap Arc clone)
+                    // outside the lock so we don't hold it across the async read.
+                    let storage = this.inner.lock().unwrap().storage.clone();
+                    this.pending_read =
+                        Some(storage.read_infos_to_vec(Vec::from(instructions)));
+                    // Loop to poll the new future immediately.
                 }
             }
         }
