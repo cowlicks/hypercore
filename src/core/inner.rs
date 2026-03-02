@@ -401,6 +401,15 @@ pub(crate) struct Inner2 {
 }
 
 impl Inner2 {
+    pub(crate) fn verify_proof(&self, proof: Proof) -> VerifyProofFuture {
+        VerifyProofFuture {
+            inner: self.inner.clone(),
+            proof,
+            infos: None,
+            pending_read: None,
+        }
+    }
+
     pub(crate) fn create_valueless_proof(
         &self,
         block: Option<RequestBlock>,
@@ -416,6 +425,64 @@ impl Inner2 {
             upgrade,
             infos: Vec::new(),
             pending_read: None,
+        }
+    }
+}
+
+pub(crate) struct VerifyProofFuture {
+    inner: Arc<Mutex<HypercoreInner>>,
+    proof: Proof,
+    // None = first attempt (no read done yet), Some = read completed
+    infos: Option<Vec<StoreInfo>>,
+    pending_read: Option<BoxFuture<Result<Vec<StoreInfo>, HypercoreError>>>,
+}
+
+impl Future for VerifyProofFuture {
+    type Output = Result<MerkleTreeChangeset, HypercoreError>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+
+        loop {
+            // Phase 1: if there's a pending storage read, drive it to completion.
+            if let Some(fut) = this.pending_read.as_mut() {
+                match fut.as_mut().poll(cx) {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                    Poll::Ready(Ok(infos)) => {
+                        this.infos = Some(infos);
+                        this.pending_read = None;
+                        // Fall through to retry verify_proof.
+                    }
+                }
+            }
+
+            // Phase 2: call tree.verify_proof synchronously under the lock.
+            let result = {
+                let inner = this.inner.lock().unwrap();
+                let public_key = inner.key_pair.public;
+                let infos_opt = this.infos.as_deref();
+                inner.tree.verify_proof(&this.proof, &public_key, infos_opt)
+                // Lock is dropped here.
+            };
+
+            match result {
+                Err(e) => return Poll::Ready(Err(e)),
+                Ok(Either::Right(value)) => return Poll::Ready(Ok(value)),
+                Ok(Either::Left(_)) if this.infos.is_some() => {
+                    // We already read infos and still got Left — the proof can't
+                    // be satisfied, which is an error.
+                    return Poll::Ready(Err(HypercoreError::InvalidOperation {
+                        context: "Could not verify proof from tree".to_string(),
+                    }));
+                }
+                Ok(Either::Left(instructions)) => {
+                    let storage = this.inner.lock().unwrap().storage.clone();
+                    this.pending_read =
+                        Some(storage.read_infos_to_vec(Vec::from(instructions)));
+                    // Loop to poll the new future immediately.
+                }
+            }
         }
     }
 }
