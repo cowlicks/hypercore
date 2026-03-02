@@ -401,6 +401,19 @@ pub(crate) struct Inner2 {
 }
 
 impl Inner2 {
+    pub(crate) fn byte_range(
+        &self,
+        index: u64,
+        initial_infos: Vec<StoreInfo>,
+    ) -> ByteRangeFuture {
+        ByteRangeFuture {
+            inner: self.inner.clone(),
+            index,
+            infos: initial_infos,
+            pending_read: None,
+        }
+    }
+
     pub(crate) fn verify_proof(&self, proof: Proof) -> VerifyProofFuture {
         VerifyProofFuture {
             inner: self.inner.clone(),
@@ -425,6 +438,55 @@ impl Inner2 {
             upgrade,
             infos: Vec::new(),
             pending_read: None,
+        }
+    }
+}
+
+pub(crate) struct ByteRangeFuture {
+    inner: Arc<Mutex<HypercoreInner>>,
+    index: u64,
+    infos: Vec<StoreInfo>,
+    pending_read: Option<BoxFuture<Result<Vec<StoreInfo>, HypercoreError>>>,
+}
+
+impl Future for ByteRangeFuture {
+    type Output = Result<NodeByteRange, HypercoreError>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+
+        loop {
+            if let Some(fut) = this.pending_read.as_mut() {
+                match fut.as_mut().poll(cx) {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                    Poll::Ready(Ok(new_infos)) => {
+                        this.infos.extend(new_infos);
+                        this.pending_read = None;
+                    }
+                }
+            }
+
+            let result = {
+                let inner = this.inner.lock().unwrap();
+                let infos_opt = if this.infos.is_empty() {
+                    None
+                } else {
+                    Some(this.infos.as_slice())
+                };
+                inner.tree.byte_range(this.index, infos_opt)
+                // Lock is dropped here.
+            };
+
+            match result {
+                Err(e) => return Poll::Ready(Err(e)),
+                Ok(Either::Right(value)) => return Poll::Ready(Ok(value)),
+                Ok(Either::Left(instructions)) => {
+                    let storage = this.inner.lock().unwrap().storage.clone();
+                    this.pending_read =
+                        Some(storage.read_infos_to_vec(Vec::from(instructions)));
+                }
+            }
         }
     }
 }
