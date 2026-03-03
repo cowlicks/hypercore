@@ -13,10 +13,7 @@ use tracing::instrument;
 
 use crate::{
     bitfield::Bitfield,
-    common::{
-        BitfieldUpdate, HypercoreError, NodeByteRange, StoreInfo,
-        ValuelessProof,
-    },
+    common::{BitfieldUpdate, HypercoreError, NodeByteRange, StoreInfo, ValuelessProof},
     crypto::{PartialKeypair, generate_signing_key},
     data::BlockStore,
     oplog::{Header, MAX_OPLOG_ENTRIES_BYTE_SIZE, Oplog},
@@ -28,7 +25,7 @@ use hypercore_schema::{Proof, RequestBlock, RequestSeek, RequestUpgrade};
 use super::{AppendOutcome, HypercoreOptions, Info};
 
 #[derive(Debug)]
-pub(crate) struct HypercoreInner {
+pub(crate) struct HypercoreInnerInner {
     pub(crate) key_pair: PartialKeypair,
     pub(crate) storage: Storage,
     pub(crate) oplog: Oplog,
@@ -41,7 +38,7 @@ pub(crate) struct HypercoreInner {
     pub(crate) events: crate::replication::events::Events,
 }
 
-impl HypercoreInner {
+impl HypercoreInnerInner {
     pub(crate) async fn new(
         storage: Storage,
         mut options: HypercoreOptions,
@@ -396,22 +393,56 @@ impl HypercoreInner {
     }
 }
 
-pub(crate) struct Inner2 {
-    pub(crate) inner: Arc<Mutex<HypercoreInner>>,
+#[derive(Debug)]
+pub(crate) struct HypercoreInner {
+    pub(crate) inner: Arc<Mutex<HypercoreInnerInner>>,
 }
 
-impl Inner2 {
-    pub(crate) fn byte_range(
+impl HypercoreInner {
+    pub(crate) async fn new(
+        storage: Storage,
+        options: HypercoreOptions,
+    ) -> Result<Self, HypercoreError> {
+        Ok(Self {
+            inner: Arc::new(Mutex::new(
+                HypercoreInnerInner::new(storage, options).await?,
+            )),
+        })
+    }
+    pub(crate) fn info(&self) -> Info {
+        self.inner.lock().unwrap().info()
+    }
+    pub(crate) fn key_pair(&self) -> PartialKeypair {
+        self.inner.lock().unwrap().key_pair().clone()
+    }
+
+    pub(crate) fn has(&self, index: u64) -> bool {
+        self.inner.lock().unwrap().has(index)
+    }
+
+    #[cfg(feature = "replication")]
+    pub(crate) fn event_subscribe(
         &self,
-        index: u64,
-        initial_infos: Vec<StoreInfo>,
-    ) -> ByteRangeFuture {
-        ByteRangeFuture {
-            inner: self.inner.clone(),
-            index,
-            infos: initial_infos,
-            pending_read: None,
-        }
+    ) -> async_broadcast::Receiver<crate::replication::events::Event> {
+        self.inner.lock().unwrap().event_subscribe()
+    }
+    pub(crate) fn append_outcome(&self) -> AppendOutcome {
+        self.inner.lock().unwrap().append_outcome()
+    }
+    pub(crate) fn should_flush_bitfield_and_tree_and_oplog(&self) -> bool {
+        self.inner
+            .lock()
+            .unwrap()
+            .should_flush_bitfield_and_tree_and_oplog()
+    }
+    pub(crate) fn flush_bitfield_and_tree_and_oplog(
+        &self,
+        clear_traces: bool,
+    ) -> BoxFuture<Result<(), HypercoreError>> {
+        self.inner
+            .lock()
+            .unwrap()
+            .flush_bitfield_and_tree_and_oplog(clear_traces)
     }
 
     pub(crate) fn verify_proof(&self, proof: Proof) -> VerifyProofFuture {
@@ -419,6 +450,25 @@ impl Inner2 {
             inner: self.inner.clone(),
             proof,
             infos: None,
+            pending_read: None,
+        }
+    }
+    pub(crate) fn missing_nodes_from_merkle_tree_index(
+        &self,
+        merkle_tree_index: u64,
+    ) -> MissingNodesFuture {
+        MissingNodesFuture {
+            inner: self.inner.clone(),
+            merkle_tree_index,
+            infos: Vec::new(),
+            pending_read: None,
+        }
+    }
+    pub(crate) fn byte_range(&self, index: u64, initial_infos: Vec<StoreInfo>) -> ByteRangeFuture {
+        ByteRangeFuture {
+            inner: self.inner.clone(),
+            index,
+            infos: initial_infos,
             pending_read: None,
         }
     }
@@ -442,8 +492,56 @@ impl Inner2 {
     }
 }
 
+pub(crate) struct MissingNodesFuture {
+    inner: Arc<Mutex<HypercoreInnerInner>>,
+    merkle_tree_index: u64,
+    infos: Vec<StoreInfo>,
+    pending_read: Option<BoxFuture<Result<Vec<StoreInfo>, HypercoreError>>>,
+}
+
+impl Future for MissingNodesFuture {
+    type Output = Result<u64, HypercoreError>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+
+        loop {
+            if let Some(fut) = this.pending_read.as_mut() {
+                match fut.as_mut().poll(cx) {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                    Poll::Ready(Ok(new_infos)) => {
+                        this.infos.extend(new_infos);
+                        this.pending_read = None;
+                    }
+                }
+            }
+
+            let result = {
+                let inner = this.inner.lock().unwrap();
+                let infos_opt = if this.infos.is_empty() {
+                    None
+                } else {
+                    Some(this.infos.as_slice())
+                };
+                inner.tree.missing_nodes(this.merkle_tree_index, infos_opt)
+                // Lock is dropped here.
+            };
+
+            match result {
+                Err(e) => return Poll::Ready(Err(e)),
+                Ok(Either::Right(value)) => return Poll::Ready(Ok(value)),
+                Ok(Either::Left(instructions)) => {
+                    let storage = this.inner.lock().unwrap().storage.clone();
+                    this.pending_read = Some(storage.read_infos_to_vec(Vec::from(instructions)));
+                }
+            }
+        }
+    }
+}
+
 pub(crate) struct ByteRangeFuture {
-    inner: Arc<Mutex<HypercoreInner>>,
+    inner: Arc<Mutex<HypercoreInnerInner>>,
     index: u64,
     infos: Vec<StoreInfo>,
     pending_read: Option<BoxFuture<Result<Vec<StoreInfo>, HypercoreError>>>,
@@ -483,8 +581,7 @@ impl Future for ByteRangeFuture {
                 Ok(Either::Right(value)) => return Poll::Ready(Ok(value)),
                 Ok(Either::Left(instructions)) => {
                     let storage = this.inner.lock().unwrap().storage.clone();
-                    this.pending_read =
-                        Some(storage.read_infos_to_vec(Vec::from(instructions)));
+                    this.pending_read = Some(storage.read_infos_to_vec(Vec::from(instructions)));
                 }
             }
         }
@@ -492,7 +589,7 @@ impl Future for ByteRangeFuture {
 }
 
 pub(crate) struct VerifyProofFuture {
-    inner: Arc<Mutex<HypercoreInner>>,
+    inner: Arc<Mutex<HypercoreInnerInner>>,
     proof: Proof,
     // None = first attempt (no read done yet), Some = read completed
     infos: Option<Vec<StoreInfo>>,
@@ -540,8 +637,7 @@ impl Future for VerifyProofFuture {
                 }
                 Ok(Either::Left(instructions)) => {
                     let storage = this.inner.lock().unwrap().storage.clone();
-                    this.pending_read =
-                        Some(storage.read_infos_to_vec(Vec::from(instructions)));
+                    this.pending_read = Some(storage.read_infos_to_vec(Vec::from(instructions)));
                     // Loop to poll the new future immediately.
                 }
             }
@@ -550,7 +646,7 @@ impl Future for VerifyProofFuture {
 }
 
 pub(crate) struct ValuelessProofFuture {
-    inner: Arc<Mutex<HypercoreInner>>,
+    inner: Arc<Mutex<HypercoreInnerInner>>,
     block: Option<RequestBlock>,
     hash: Option<RequestBlock>,
     seek: Option<RequestSeek>,
@@ -605,8 +701,7 @@ impl Future for ValuelessProofFuture {
                     // Need more nodes from storage. Clone storage (cheap Arc clone)
                     // outside the lock so we don't hold it across the async read.
                     let storage = this.inner.lock().unwrap().storage.clone();
-                    this.pending_read =
-                        Some(storage.read_infos_to_vec(Vec::from(instructions)));
+                    this.pending_read = Some(storage.read_infos_to_vec(Vec::from(instructions)));
                     // Loop to poll the new future immediately.
                 }
             }

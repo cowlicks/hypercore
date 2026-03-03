@@ -37,6 +37,12 @@ impl HypercoreOptions {
     }
 }
 
+macro_rules! ininner {
+    ($self:expr) => {
+        $self.inner.inner.lock().unwrap()
+    };
+}
+
 /// Hypercore is an append-only log structure.
 #[derive(Debug)]
 pub struct Hypercore {
@@ -100,7 +106,7 @@ impl Hypercore {
         &mut self,
         batch: B,
     ) -> Result<AppendOutcome, HypercoreError> {
-        let secret_key = match &self.inner.key_pair.secret {
+        let secret_key = match self.inner.key_pair().secret {
             Some(key) => key,
             None => return Err(HypercoreError::NotWritable),
         };
@@ -109,19 +115,20 @@ impl Hypercore {
             return Ok(self.inner.append_outcome());
         }
         // Create a changeset for the tree
-        let mut changeset = self.inner.tree.changeset();
+        let mut changeset = ininner!(self).tree.changeset();
         let mut batch_length: usize = 0;
         for data in batch.as_ref().iter() {
             batch_length += changeset.append(data.as_ref());
         }
-        changeset.hash_and_sign(secret_key);
+        changeset.hash_and_sign(&secret_key);
 
         // Write the received data to the block store
-        let info = self
-            .inner
-            .block_store
-            .append_batch(batch.as_ref(), batch_length, self.inner.tree.byte_length);
-        self.inner.storage.flush_info(info).await?;
+        let info = ininner!(self).block_store.append_batch(
+            batch.as_ref(),
+            batch_length,
+            ininner!(self).tree.byte_length,
+        );
+        ininner!(self).storage.flush_info(info).await?;
 
         // Append the changeset to the Oplog
         let bitfield_update = BitfieldUpdate {
@@ -129,30 +136,30 @@ impl Hypercore {
             start: changeset.ancestors,
             length: changeset.batch_length,
         };
-        let outcome = self.inner.oplog.append_changeset(
+        let outcome = ininner!(self).oplog.append_changeset(
             &changeset,
             Some(bitfield_update.clone()),
             false,
-            &self.inner.header,
+            &ininner!(self).header,
         )?;
-        self.inner
+        ininner!(self)
             .storage
             .flush_infos(Vec::from(outcome.infos_to_flush))
             .await?;
-        self.inner.header = outcome.header;
+        ininner!(self).header = outcome.header;
 
         // Write to bitfield
-        self.inner.bitfield.update(&bitfield_update);
+        ininner!(self).bitfield.update(&bitfield_update);
 
         // Contiguous length is known only now
         update_contiguous_length(
-            &mut self.inner.header,
-            &self.inner.bitfield,
+            &mut ininner!(self).header,
+            &ininner!(self).bitfield,
             &bitfield_update,
         );
 
         // Commit changeset to in-memory tree
-        self.inner.tree.commit(changeset)?;
+        ininner!(self).tree.commit(changeset)?;
 
         // Now ready to flush
         if self.inner.should_flush_bitfield_and_tree_and_oplog() {
@@ -164,12 +171,10 @@ impl Hypercore {
             use tracing::trace;
 
             trace!(bitfield_update = ?bitfield_update, "Hppercore.append_batch emit DataUpgrade & Have");
-            let _ = self
-                .inner
+            let _ = ininner!(self)
                 .events
                 .send(crate::replication::events::DataUpgrade {});
-            let _ = self
-                .inner
+            let _ = ininner!(self)
                 .events
                 .send(crate::replication::events::Have::from(&bitfield_update));
         }
@@ -192,26 +197,26 @@ impl Hypercore {
     /// Read value at given index, if any.
     #[instrument(err, skip(self))]
     pub async fn get(&self, index: u64) -> Result<Option<Vec<u8>>, HypercoreError> {
-        if !self.inner.bitfield.get(index) {
+        if !ininner!(self).bitfield.get(index) {
             #[cfg(feature = "replication")]
             // if not in this core, emit Event::Get(index)
             {
                 use tracing::trace;
 
                 trace!(index = index, "Hppercore emit 'get' event");
-                self.inner.events.send_on_get(index);
+                ininner!(self).events.send_on_get(index);
             }
             return Ok(None);
         }
 
-        let byte_range = self.inner.byte_range(index, None).await?;
+        let byte_range = self.inner.byte_range(index, Vec::new()).await?;
 
         // TODO: Generalize Either response stack
-        let data = match self.inner.block_store.read(&byte_range, None) {
+        let data = match ininner!(self).block_store.read(&byte_range, None) {
             Either::Right(value) => value,
             Either::Left(instruction) => {
-                let info = self.inner.storage.read_info(instruction).await?;
-                match self.inner.block_store.read(&byte_range, Some(info)) {
+                let info = ininner!(self).storage.read_info(instruction).await?;
+                match ininner!(self).block_store.read(&byte_range, Some(info)) {
                     Either::Right(value) => value,
                     Either::Left(_) => {
                         return Err(HypercoreError::InvalidOperation {
@@ -233,44 +238,43 @@ impl Hypercore {
             return Ok(());
         }
         // Write to oplog
-        let infos_to_flush = self.inner.oplog.clear(start, end)?;
-        self.inner
+        let infos_to_flush = ininner!(self).oplog.clear(start, end)?;
+        ininner!(self)
             .storage
             .flush_infos(Vec::from(infos_to_flush))
             .await?;
 
         // Set bitfield
-        self.inner.bitfield.set_range(start, end - start, false);
+        ininner!(self).bitfield.set_range(start, end - start, false);
 
         // Set contiguous length
-        if start < self.inner.header.hints.contiguous_length {
-            self.inner.header.hints.contiguous_length = start;
+        if start < ininner!(self).header.hints.contiguous_length {
+            ininner!(self).header.hints.contiguous_length = start;
         }
 
         // Find the biggest hole that can be punched into the data
-        let start = if let Some(index) = self.inner.bitfield.last_index_of(true, start) {
+        let start = if let Some(index) = ininner!(self).bitfield.last_index_of(true, start) {
             index + 1
         } else {
             0
         };
-        let end = if let Some(index) = self.inner.bitfield.index_of(true, end) {
+        let end = if let Some(index) = ininner!(self).bitfield.index_of(true, end) {
             index
         } else {
-            self.inner.tree.length
+            ininner!(self).tree.length
         };
 
         // Find byte offset for first value
         let mut infos: Vec<StoreInfo> = Vec::new();
-        let clear_offset = match self.inner.tree.byte_offset(start, None)? {
+        let clear_offset = match ininner!(self).tree.byte_offset(start, None)? {
             Either::Right(value) => value,
             Either::Left(instructions) => {
-                let new_infos = self
-                    .inner
+                let new_infos = ininner!(self)
                     .storage
                     .read_infos_to_vec(Vec::from(instructions))
                     .await?;
                 infos.extend(new_infos);
-                match self.inner.tree.byte_offset(start, Some(&infos))? {
+                match ininner!(self).tree.byte_offset(start, Some(&infos))? {
                     Either::Right(value) => value,
                     Either::Left(_) => {
                         return Err(HypercoreError::InvalidOperation {
@@ -282,13 +286,13 @@ impl Hypercore {
         };
 
         // Find byte range for last value
-        let last_byte_range = self.inner.byte_range(end - 1, Some(&infos)).await?;
+        let last_byte_range = self.inner.byte_range(end - 1, infos).await?;
 
         let clear_length = (last_byte_range.index + last_byte_range.length) - clear_offset;
 
         // Clear blocks
-        let info_to_flush = self.inner.block_store.clear(clear_offset, clear_length);
-        self.inner.storage.flush_info(info_to_flush).await?;
+        let info_to_flush = ininner!(self).block_store.clear(clear_offset, clear_length);
+        ininner!(self).storage.flush_info(info_to_flush).await?;
 
         // Now ready to flush
         if self.inner.should_flush_bitfield_and_tree_and_oplog() {
@@ -299,7 +303,7 @@ impl Hypercore {
     }
 
     /// Access the key pair.
-    pub fn key_pair(&self) -> &PartialKeypair {
+    pub fn key_pair(&self) -> PartialKeypair {
         self.inner.key_pair()
     }
 
@@ -334,11 +338,12 @@ impl Hypercore {
     /// possible to apply.
     #[instrument(skip_all)]
     pub async fn verify_and_apply_proof(&mut self, proof: &Proof) -> Result<bool, HypercoreError> {
-        if proof.fork != self.inner.tree.fork {
+        if proof.fork != ininner!(self).tree.fork {
             return Ok(false);
         }
-        let changeset = self.inner.verify_proof(proof).await?;
-        if !self.inner.tree.commitable(&changeset) {
+        // TODO rm clone pass as owned
+        let changeset = self.inner.verify_proof(proof.clone()).await?;
+        if !ininner!(self).tree.commitable(&changeset) {
             return Ok(false);
         }
 
@@ -347,19 +352,17 @@ impl Hypercore {
         // oplog push, and then flushes in the end only for the whole group.
         let bitfield_update: Option<BitfieldUpdate> = if let Some(block) = &proof.block.as_ref() {
             let byte_offset =
-                match self
-                    .inner
+                match ininner!(self)
                     .tree
                     .byte_offset_in_changeset(block.index, &changeset, None)?
                 {
                     Either::Right(value) => value,
                     Either::Left(instructions) => {
-                        let infos = self
-                            .inner
+                        let infos = ininner!(self)
                             .storage
                             .read_infos_to_vec(Vec::from(instructions))
                             .await?;
-                        match self.inner.tree.byte_offset_in_changeset(
+                        match ininner!(self).tree.byte_offset_in_changeset(
                             block.index,
                             &changeset,
                             Some(&infos),
@@ -378,8 +381,8 @@ impl Hypercore {
                 };
 
             // Write the value to the block store
-            let info_to_flush = self.inner.block_store.put(&block.value, byte_offset);
-            self.inner.storage.flush_info(info_to_flush).await?;
+            let info_to_flush = ininner!(self).block_store.put(&block.value, byte_offset);
+            ininner!(self).storage.flush_info(info_to_flush).await?;
 
             // Return a bitfield update for the given value
             Some(BitfieldUpdate {
@@ -393,32 +396,32 @@ impl Hypercore {
         };
 
         // Append the changeset to the Oplog
-        let outcome = self.inner.oplog.append_changeset(
+        let outcome = ininner!(self).oplog.append_changeset(
             &changeset,
             bitfield_update.clone(),
             false,
-            &self.inner.header,
+            &ininner!(self).header,
         )?;
-        self.inner
+        ininner!(self)
             .storage
             .flush_infos(Vec::from(outcome.infos_to_flush))
             .await?;
-        self.inner.header = outcome.header;
+        ininner!(self).header = outcome.header;
 
         if let Some(bitfield_update) = &bitfield_update {
             // Write to bitfield
-            self.inner.bitfield.update(bitfield_update);
+            ininner!(self).bitfield.update(bitfield_update);
 
             // Contiguous length is known only now
             update_contiguous_length(
-                &mut self.inner.header,
-                &self.inner.bitfield,
+                &mut ininner!(self).header,
+                &ininner!(self).bitfield,
                 bitfield_update,
             );
         }
 
         // Commit changeset to in-memory tree
-        self.inner.tree.commit(changeset)?;
+        ininner!(self).tree.commit(changeset)?;
 
         // Now ready to flush
         if self.inner.should_flush_bitfield_and_tree_and_oplog() {
@@ -429,16 +432,14 @@ impl Hypercore {
         {
             if proof.upgrade.is_some() {
                 // Notify replicator if we receieved an upgrade
-                let _ = self
-                    .inner
+                let _ = ininner!(self)
                     .events
                     .send(crate::replication::events::DataUpgrade {});
             }
 
             // Notify replicator if we receieved a bitfield update
             if let Some(ref bitfield) = bitfield_update {
-                let _ = self
-                    .inner
+                let _ = ininner!(self)
                     .events
                     .send(crate::replication::events::Have::from(bitfield));
             }
@@ -473,11 +474,13 @@ impl Hypercore {
     /// been stored.
     #[instrument(err, skip_all)]
     pub async fn make_read_only(&mut self) -> Result<bool, HypercoreError> {
-        if self.inner.key_pair.secret.is_some() {
-            self.inner.key_pair.secret = None;
-            self.inner.header.key_pair.secret = None;
+        if ininner!(self).key_pair.secret.is_some() {
+            ininner!(self).key_pair.secret = None;
+            ininner!(self).header.key_pair.secret = None;
             // Need to flush clearing traces to make sure both oplog slots are cleared
-            self.inner.flush_bitfield_and_tree_and_oplog(true).await?;
+            ininner!(self)
+                .flush_bitfield_and_tree_and_oplog(true)
+                .await?;
             Ok(true)
         } else {
             Ok(false)
@@ -817,7 +820,7 @@ pub(crate) mod tests {
         let mut clone = create_hypercore_with_data_and_key_pair(
             0,
             PartialKeypair {
-                public: main.inner.key_pair.public,
+                public: ininner!(main).key_pair.public,
                 secret: None,
             },
         )
