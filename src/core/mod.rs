@@ -10,6 +10,7 @@ use tracing::instrument;
 use crate::common::cache::CacheOptions;
 use crate::{
     common::{BitfieldUpdate, HypercoreError, StoreInfo},
+    core::inner::HypercoreInnerInner,
     crypto::PartialKeypair,
     storage::Storage,
 };
@@ -123,12 +124,12 @@ impl Hypercore {
         changeset.hash_and_sign(&secret_key);
 
         // Write the received data to the block store
-        let info = ininner!(self).block_store.append_batch(
-            batch.as_ref(),
-            batch_length,
-            ininner!(self).tree.byte_length,
-        );
-        ininner!(self).storage.flush_info(info).await?;
+        let byte_length = ininner!(self).tree.byte_length;
+        let info =
+            ininner!(self)
+                .block_store
+                .append_batch(batch.as_ref(), batch_length, byte_length);
+        { ininner!(self).storage.flush_info(info) }.await?;
 
         // Append the changeset to the Oplog
         let bitfield_update = BitfieldUpdate {
@@ -136,27 +137,28 @@ impl Hypercore {
             start: changeset.ancestors,
             length: changeset.batch_length,
         };
-        let outcome = ininner!(self).oplog.append_changeset(
-            &changeset,
-            Some(bitfield_update.clone()),
-            false,
-            &ininner!(self).header,
-        )?;
-        ininner!(self)
-            .storage
-            .flush_infos(Vec::from(outcome.infos_to_flush))
-            .await?;
+        let outcome = {
+            let HypercoreInnerInner { oplog, header, .. } = &mut *ininner!(self);
+            oplog.append_changeset(&changeset, Some(bitfield_update.clone()), false, header)?
+        };
+        {
+            ininner!(self)
+                .storage
+                .flush_infos(Vec::from(outcome.infos_to_flush))
+        }
+        .await?;
         ininner!(self).header = outcome.header;
 
         // Write to bitfield
         ininner!(self).bitfield.update(&bitfield_update);
 
         // Contiguous length is known only now
-        update_contiguous_length(
-            &mut ininner!(self).header,
-            &ininner!(self).bitfield,
-            &bitfield_update,
-        );
+        {
+            let HypercoreInnerInner {
+                bitfield, header, ..
+            } = &mut *ininner!(self);
+            update_contiguous_length(header, bitfield, &bitfield_update);
+        }
 
         // Commit changeset to in-memory tree
         ininner!(self).tree.commit(changeset)?;
@@ -212,10 +214,10 @@ impl Hypercore {
         let byte_range = self.inner.byte_range(index, Vec::new()).await?;
 
         // TODO: Generalize Either response stack
-        let data = match ininner!(self).block_store.read(&byte_range, None) {
+        let data = match { ininner!(self).block_store.read(&byte_range, None) } {
             Either::Right(value) => value,
             Either::Left(instruction) => {
-                let info = ininner!(self).storage.read_info(instruction).await?;
+                let info = { ininner!(self).storage.read_info(instruction) }.await?;
                 match ininner!(self).block_store.read(&byte_range, Some(info)) {
                     Either::Right(value) => value,
                     Either::Left(_) => {
@@ -239,10 +241,12 @@ impl Hypercore {
         }
         // Write to oplog
         let infos_to_flush = ininner!(self).oplog.clear(start, end)?;
-        ininner!(self)
-            .storage
-            .flush_infos(Vec::from(infos_to_flush))
-            .await?;
+        {
+            ininner!(self)
+                .storage
+                .flush_infos(Vec::from(infos_to_flush))
+        }
+        .await?;
 
         // Set bitfield
         ininner!(self).bitfield.set_range(start, end - start, false);
@@ -266,13 +270,15 @@ impl Hypercore {
 
         // Find byte offset for first value
         let mut infos: Vec<StoreInfo> = Vec::new();
-        let clear_offset = match ininner!(self).tree.byte_offset(start, None)? {
+        let clear_offset = match { ininner!(self).tree.byte_offset(start, None)? } {
             Either::Right(value) => value,
             Either::Left(instructions) => {
-                let new_infos = ininner!(self)
-                    .storage
-                    .read_infos_to_vec(Vec::from(instructions))
-                    .await?;
+                let new_infos = {
+                    ininner!(self)
+                        .storage
+                        .read_infos_to_vec(Vec::from(instructions))
+                }
+                .await?;
                 infos.extend(new_infos);
                 match ininner!(self).tree.byte_offset(start, Some(&infos))? {
                     Either::Right(value) => value,
@@ -292,7 +298,7 @@ impl Hypercore {
 
         // Clear blocks
         let info_to_flush = ininner!(self).block_store.clear(clear_offset, clear_length);
-        ininner!(self).storage.flush_info(info_to_flush).await?;
+        { ininner!(self).storage.flush_info(info_to_flush) }.await?;
 
         // Now ready to flush
         if self.inner.should_flush_bitfield_and_tree_and_oplog() {
@@ -337,7 +343,7 @@ impl Hypercore {
     /// Verify and apply proof received from peer, returns true if changed, false if not
     /// possible to apply.
     #[instrument(skip_all)]
-    pub async fn verify_and_apply_proof(&mut self, proof: &Proof) -> Result<bool, HypercoreError> {
+    pub async fn verify_and_apply_proof(&self, proof: &Proof) -> Result<bool, HypercoreError> {
         if proof.fork != ininner!(self).tree.fork {
             return Ok(false);
         }
@@ -351,38 +357,40 @@ impl Hypercore {
         // here we do only one. _verifyShared groups together many subsequent changesets into a single
         // oplog push, and then flushes in the end only for the whole group.
         let bitfield_update: Option<BitfieldUpdate> = if let Some(block) = &proof.block.as_ref() {
-            let byte_offset =
-                match ininner!(self)
+            let byte_offset = match {
+                ininner!(self)
                     .tree
                     .byte_offset_in_changeset(block.index, &changeset, None)?
-                {
-                    Either::Right(value) => value,
-                    Either::Left(instructions) => {
-                        let infos = ininner!(self)
+            } {
+                Either::Right(value) => value,
+                Either::Left(instructions) => {
+                    let infos = {
+                        ininner!(self)
                             .storage
                             .read_infos_to_vec(Vec::from(instructions))
-                            .await?;
-                        match ininner!(self).tree.byte_offset_in_changeset(
-                            block.index,
-                            &changeset,
-                            Some(&infos),
-                        )? {
-                            Either::Right(value) => value,
-                            Either::Left(_) => {
-                                return Err(HypercoreError::InvalidOperation {
-                                    context: format!(
-                                        "Could not read offset for index {} from tree",
-                                        block.index
-                                    ),
-                                });
-                            }
+                    }
+                    .await?;
+                    match ininner!(self).tree.byte_offset_in_changeset(
+                        block.index,
+                        &changeset,
+                        Some(&infos),
+                    )? {
+                        Either::Right(value) => value,
+                        Either::Left(_) => {
+                            return Err(HypercoreError::InvalidOperation {
+                                context: format!(
+                                    "Could not read offset for index {} from tree",
+                                    block.index
+                                ),
+                            });
                         }
                     }
-                };
+                }
+            };
 
             // Write the value to the block store
             let info_to_flush = ininner!(self).block_store.put(&block.value, byte_offset);
-            ininner!(self).storage.flush_info(info_to_flush).await?;
+            { ininner!(self).storage.flush_info(info_to_flush) }.await?;
 
             // Return a bitfield update for the given value
             Some(BitfieldUpdate {
@@ -396,16 +404,16 @@ impl Hypercore {
         };
 
         // Append the changeset to the Oplog
-        let outcome = ininner!(self).oplog.append_changeset(
-            &changeset,
-            bitfield_update.clone(),
-            false,
-            &ininner!(self).header,
-        )?;
-        ininner!(self)
-            .storage
-            .flush_infos(Vec::from(outcome.infos_to_flush))
-            .await?;
+        let outcome = {
+            let HypercoreInnerInner { oplog, header, .. } = &mut *ininner!(self);
+            oplog.append_changeset(&changeset, bitfield_update.clone(), false, header)?
+        };
+        {
+            ininner!(self)
+                .storage
+                .flush_infos(Vec::from(outcome.infos_to_flush))
+        }
+        .await?;
         ininner!(self).header = outcome.header;
 
         if let Some(bitfield_update) = &bitfield_update {
@@ -413,11 +421,12 @@ impl Hypercore {
             ininner!(self).bitfield.update(bitfield_update);
 
             // Contiguous length is known only now
-            update_contiguous_length(
-                &mut ininner!(self).header,
-                &ininner!(self).bitfield,
-                bitfield_update,
-            );
+            {
+                let HypercoreInnerInner {
+                    bitfield, header, ..
+                } = &mut *ininner!(self);
+                update_contiguous_length(header, bitfield, &bitfield_update);
+            }
         }
 
         // Commit changeset to in-memory tree
@@ -478,9 +487,7 @@ impl Hypercore {
             ininner!(self).key_pair.secret = None;
             ininner!(self).header.key_pair.secret = None;
             // Need to flush clearing traces to make sure both oplog slots are cleared
-            ininner!(self)
-                .flush_bitfield_and_tree_and_oplog(true)
-                .await?;
+            { ininner!(self).flush_bitfield_and_tree_and_oplog(true) }.await?;
             Ok(true)
         } else {
             Ok(false)
