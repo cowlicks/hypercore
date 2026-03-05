@@ -199,37 +199,7 @@ impl Hypercore {
     /// Read value at given index, if any.
     #[instrument(err, skip(self))]
     pub async fn get(&self, index: u64) -> Result<Option<Vec<u8>>, HypercoreError> {
-        if !ininner!(self).bitfield.get(index) {
-            #[cfg(feature = "replication")]
-            // if not in this core, emit Event::Get(index)
-            {
-                use tracing::trace;
-
-                trace!(index = index, "Hppercore emit 'get' event");
-                ininner!(self).events.send_on_get(index);
-            }
-            return Ok(None);
-        }
-
-        let byte_range = self.inner.byte_range(index, Vec::new()).await?;
-
-        // TODO: Generalize Either response stack
-        let data = match { ininner!(self).block_store.read(&byte_range, None) } {
-            Either::Right(value) => value,
-            Either::Left(instruction) => {
-                let info = { ininner!(self).storage.read_info(instruction) }.await?;
-                match ininner!(self).block_store.read(&byte_range, Some(info)) {
-                    Either::Right(value) => value,
-                    Either::Left(_) => {
-                        return Err(HypercoreError::InvalidOperation {
-                            context: "Could not read block storage range".to_string(),
-                        });
-                    }
-                }
-            }
-        };
-
-        Ok(Some(data.to_vec()))
+        Ok(self.inner.get(index).await?.map(|b| b.into_vec()))
     }
 
     /// Clear data for entries between start and end (exclusive) indexes.

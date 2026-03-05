@@ -473,6 +473,16 @@ impl HypercoreInner {
         }
     }
 
+    pub(crate) fn get(&self, index: u64) -> GetFuture {
+        GetFuture {
+            inner: self.inner.clone(),
+            index,
+            byte_range_fut: None,
+            byte_range: None,
+            block_read_fut: None,
+        }
+    }
+
     pub(crate) fn create_valueless_proof(
         &self,
         block: Option<RequestBlock>,
@@ -488,6 +498,85 @@ impl HypercoreInner {
             upgrade,
             infos: Vec::new(),
             pending_read: None,
+        }
+    }
+}
+
+pub(crate) struct GetFuture {
+    inner: Arc<Mutex<HypercoreInnerInner>>,
+    index: u64,
+    // Phase 1: resolve byte range
+    byte_range_fut: Option<ByteRangeFuture>,
+    // Phase 2: read block from storage (only needed if block_store has no cached value)
+    byte_range: Option<NodeByteRange>,
+    block_read_fut: Option<BoxFuture<Result<StoreInfo, HypercoreError>>>,
+}
+
+impl Future for GetFuture {
+    type Output = Result<Option<Box<[u8]>>, HypercoreError>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+
+        // TODO: we really need to generalize the Either response stack
+        loop {
+            // Phase 2: storage read for block data (highest priority when active).
+            if let Some(fut) = this.block_read_fut.as_mut() {
+                match fut.as_mut().poll(cx) {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                    Poll::Ready(Ok(info)) => {
+                        this.block_read_fut = None;
+                        let inner = this.inner.lock().unwrap();
+                        let byte_range = this.byte_range.as_ref().unwrap();
+                        return match inner.block_store.read(byte_range, Some(info)) {
+                            Either::Right(data) => Poll::Ready(Ok(Some(data))),
+                            Either::Left(_) => Poll::Ready(Err(HypercoreError::InvalidOperation {
+                                context: "Could not read block storage range".to_string(),
+                            })),
+                        };
+                    }
+                }
+            }
+
+            // Phase 1: resolve the byte range.
+            if let Some(fut) = this.byte_range_fut.as_mut() {
+                match Pin::new(fut).poll(cx) {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                    Poll::Ready(Ok(byte_range)) => {
+                        this.byte_range_fut = None;
+                        let inner = this.inner.lock().unwrap();
+                        match inner.block_store.read(&byte_range, None) {
+                            Either::Right(data) => return Poll::Ready(Ok(Some(data))),
+                            Either::Left(instruction) => {
+                                let storage = inner.storage.clone();
+                                this.block_read_fut = Some(storage.read_info(instruction));
+                                this.byte_range = Some(byte_range);
+                                // Loop to poll block_read_fut immediately.
+                            }
+                        }
+                    }
+                }
+                continue;
+            }
+
+            // Initial: check bitfield, then start byte range resolution.
+            {
+                let inner = this.inner.lock().unwrap();
+                if !inner.bitfield.get(this.index) {
+                    #[cfg(feature = "replication")]
+                    inner.events.send_on_get(this.index);
+                    return Poll::Ready(Ok(None));
+                }
+            }
+            this.byte_range_fut = Some(ByteRangeFuture {
+                inner: this.inner.clone(),
+                index: this.index,
+                infos: Vec::new(),
+                pending_read: None,
+            });
+            // Loop to poll byte_range_fut immediately.
         }
     }
 }
