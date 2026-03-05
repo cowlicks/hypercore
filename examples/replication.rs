@@ -97,7 +97,7 @@ async fn replicate_index(
     // Then the proof is verified and applied to the replicated party.
     assert!(
         replicated_hypercore
-            .verify_and_apply_proof(&proof)
+            .verify_and_apply_proof(proof)
             .await
             .expect("Verifying and applying proof failed")
     );

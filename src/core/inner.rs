@@ -16,7 +16,7 @@ use crate::{
     common::{BitfieldUpdate, HypercoreError, NodeByteRange, StoreInfo, ValuelessProof},
     crypto::{PartialKeypair, generate_signing_key},
     data::BlockStore,
-    oplog::{Header, MAX_OPLOG_ENTRIES_BYTE_SIZE, Oplog},
+    oplog::{Header, MAX_OPLOG_ENTRIES_BYTE_SIZE, Oplog, OplogCreateHeaderOutcome},
     storage::Storage,
     tree::{MerkleTree, MerkleTreeChangeset},
 };
@@ -464,6 +464,22 @@ impl HypercoreInner {
             pending_read: None,
         }
     }
+    pub(crate) fn verify_and_apply_proof(&self, proof: Proof) -> VerifyAndApplyProofFuture {
+        VerifyAndApplyProofFuture {
+            inner: self.inner.clone(),
+            proof,
+            changeset: None,
+            bitfield_update: None,
+            pending_header: None,
+            verify_fut: None,
+            byte_offset_infos: Vec::new(),
+            byte_offset_read_fut: None,
+            flush_block_fut: None,
+            flush_oplog_fut: None,
+            flush_all_fut: None,
+        }
+    }
+
     pub(crate) fn byte_range(&self, index: u64, initial_infos: Vec<StoreInfo>) -> ByteRangeFuture {
         ByteRangeFuture {
             inner: self.inner.clone(),
@@ -890,6 +906,278 @@ impl Future for ValuelessProofFuture {
                     // Loop to poll the new future immediately.
                 }
             }
+        }
+    }
+}
+
+pub(crate) struct VerifyAndApplyProofFuture {
+    inner: Arc<Mutex<HypercoreInnerInner>>,
+    proof: Proof,
+    // Carried between phases
+    changeset: Option<MerkleTreeChangeset>,
+    bitfield_update: Option<BitfieldUpdate>,
+    pending_header: Option<Header>,
+    // Phase 1: verify the proof
+    verify_fut: Option<VerifyProofFuture>,
+    // Phase 2: read nodes for byte_offset_in_changeset (only if proof.block is Some)
+    byte_offset_infos: Vec<StoreInfo>,
+    byte_offset_read_fut: Option<BoxFuture<Result<Vec<StoreInfo>, HypercoreError>>>,
+    // Phase 3: flush block data to storage
+    flush_block_fut: Option<BoxFuture<Result<(), HypercoreError>>>,
+    // Phase 4: flush oplog
+    flush_oplog_fut: Option<BoxFuture<Result<(), HypercoreError>>>,
+    // Phase 5: flush bitfield+tree+oplog (conditional)
+    flush_all_fut: Option<BoxFuture<Result<(), HypercoreError>>>,
+}
+
+impl VerifyAndApplyProofFuture {
+    // Run oplog.append_changeset synchronously under the lock and return the
+    // BoxFuture that flushes the resulting infos to storage.
+    fn start_flush_oplog(
+        inner: &Arc<Mutex<HypercoreInnerInner>>,
+        changeset: &MerkleTreeChangeset,
+        pending_header: &mut Option<Header>,
+        bitfield_update: &Option<BitfieldUpdate>,
+    ) -> Result<BoxFuture<Result<(), HypercoreError>>, HypercoreError> {
+        let (storage, infos) = {
+            let mut guard = inner.lock().unwrap();
+            let OplogCreateHeaderOutcome { header, infos_to_flush } = {
+                let HypercoreInnerInner { oplog, header, .. } = &mut *guard;
+                oplog.append_changeset(changeset, bitfield_update.clone(), false, header)?
+            };
+            *pending_header = Some(header);
+            let storage = guard.storage.clone();
+            (storage, infos_to_flush)
+        };
+        Ok(storage.flush_infos(Vec::from(infos)))
+    }
+
+    fn emit_events(
+        inner: &Arc<Mutex<HypercoreInnerInner>>,
+        proof: &Proof,
+        bitfield_update: &Option<BitfieldUpdate>,
+    ) {
+        #[cfg(feature = "replication")]
+        {
+            let inner = inner.lock().unwrap();
+            if proof.upgrade.is_some() {
+                let _ = inner.events.send(crate::replication::events::DataUpgrade {});
+            }
+            if let Some(bu) = bitfield_update {
+                let _ = inner.events.send(crate::replication::events::Have::from(bu));
+            }
+        }
+        let _ = (inner, proof, bitfield_update);
+    }
+}
+
+impl Future for VerifyAndApplyProofFuture {
+    type Output = Result<bool, HypercoreError>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+
+        loop {
+            // Phase 5: flush bitfield+tree+oplog.
+            if let Some(fut) = this.flush_all_fut.as_mut() {
+                match fut.as_mut().poll(cx) {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                    Poll::Ready(Ok(())) => {
+                        this.flush_all_fut = None;
+                        Self::emit_events(&this.inner, &this.proof, &this.bitfield_update);
+                        return Poll::Ready(Ok(true));
+                    }
+                }
+            }
+
+            // Phase 4: flush oplog.
+            if let Some(fut) = this.flush_oplog_fut.as_mut() {
+                match fut.as_mut().poll(cx) {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                    Poll::Ready(Ok(())) => {
+                        this.flush_oplog_fut = None;
+                        let maybe_flush = {
+                            let mut inner = this.inner.lock().unwrap();
+                            inner.header = this.pending_header.take().unwrap();
+                            if let Some(ref bu) = this.bitfield_update {
+                                inner.bitfield.update(bu);
+                                let HypercoreInnerInner { bitfield, header, .. } = &mut *inner;
+                                update_contiguous_length(header, bitfield, bu);
+                            }
+                            let changeset = this.changeset.take().unwrap();
+                            match inner.tree.commit(changeset) {
+                                Err(e) => return Poll::Ready(Err(e)),
+                                Ok(()) => {}
+                            }
+                            if inner.should_flush_bitfield_and_tree_and_oplog() {
+                                Some(inner.flush_bitfield_and_tree_and_oplog(false))
+                            } else {
+                                None
+                            }
+                        };
+                        if let Some(fut) = maybe_flush {
+                            this.flush_all_fut = Some(fut);
+                            continue;
+                        }
+                        Self::emit_events(&this.inner, &this.proof, &this.bitfield_update);
+                        return Poll::Ready(Ok(true));
+                    }
+                }
+            }
+
+            // Phase 3: flush block data.
+            if let Some(fut) = this.flush_block_fut.as_mut() {
+                match fut.as_mut().poll(cx) {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                    Poll::Ready(Ok(())) => {
+                        this.flush_block_fut = None;
+                        match Self::start_flush_oplog(
+                            &this.inner,
+                            this.changeset.as_ref().unwrap(),
+                            &mut this.pending_header,
+                            &this.bitfield_update,
+                        ) {
+                            Err(e) => return Poll::Ready(Err(e)),
+                            Ok(fut) => this.flush_oplog_fut = Some(fut),
+                        }
+                        continue;
+                    }
+                }
+            }
+
+            // Phase 2: read nodes for byte_offset_in_changeset.
+            if let Some(fut) = this.byte_offset_read_fut.as_mut() {
+                match fut.as_mut().poll(cx) {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                    Poll::Ready(Ok(infos)) => {
+                        this.byte_offset_infos.extend(infos);
+                        this.byte_offset_read_fut = None;
+                        let block = this.proof.block.as_ref().unwrap();
+                        let changeset = this.changeset.as_ref().unwrap();
+                        let flush_fut = {
+                            let inner = this.inner.lock().unwrap();
+                            let byte_offset = match inner
+                                .tree
+                                .byte_offset_in_changeset(
+                                    block.index,
+                                    changeset,
+                                    Some(&this.byte_offset_infos),
+                                ) {
+                                Err(e) => return Poll::Ready(Err(e)),
+                                Ok(Either::Right(v)) => v,
+                                Ok(Either::Left(_)) => {
+                                    return Poll::Ready(Err(HypercoreError::InvalidOperation {
+                                        context: format!(
+                                            "Could not read offset for index {} from tree",
+                                            block.index
+                                        ),
+                                    }))
+                                }
+                            };
+                            let info = inner.block_store.put(&block.value, byte_offset);
+                            let storage = inner.storage.clone();
+                            drop(inner);
+                            storage.flush_info(info)
+                        };
+                        this.bitfield_update = Some(BitfieldUpdate {
+                            drop: false,
+                            start: block.index,
+                            length: 1,
+                        });
+                        this.flush_block_fut = Some(flush_fut);
+                        continue;
+                    }
+                }
+            }
+
+            // Phase 1: verify the proof.
+            if let Some(fut) = this.verify_fut.as_mut() {
+                match Pin::new(fut).poll(cx) {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                    Poll::Ready(Ok(changeset)) => {
+                        this.verify_fut = None;
+                        {
+                            let inner = this.inner.lock().unwrap();
+                            if !inner.tree.commitable(&changeset) {
+                                return Poll::Ready(Ok(false));
+                            }
+                        }
+                        this.changeset = Some(changeset);
+
+                        if let Some(block) = this.proof.block.as_ref() {
+                            let changeset = this.changeset.as_ref().unwrap();
+                            let next = {
+                                let inner = this.inner.lock().unwrap();
+                                match inner
+                                    .tree
+                                    .byte_offset_in_changeset(block.index, changeset, None)
+                                {
+                                    Err(e) => return Poll::Ready(Err(e)),
+                                    Ok(Either::Right(byte_offset)) => {
+                                        let info =
+                                            inner.block_store.put(&block.value, byte_offset);
+                                        let storage = inner.storage.clone();
+                                        drop(inner);
+                                        let bu = BitfieldUpdate {
+                                            drop: false,
+                                            start: block.index,
+                                            length: 1,
+                                        };
+                                        Either::Right((storage.flush_info(info), bu))
+                                    }
+                                    Ok(Either::Left(instructions)) => {
+                                        let storage = inner.storage.clone();
+                                        drop(inner);
+                                        Either::Left(storage.read_infos_to_vec(Vec::from(
+                                            instructions,
+                                        )))
+                                    }
+                                }
+                            };
+                            match next {
+                                Either::Right((flush_fut, bu)) => {
+                                    this.bitfield_update = Some(bu);
+                                    this.flush_block_fut = Some(flush_fut);
+                                }
+                                Either::Left(read_fut) => {
+                                    this.byte_offset_read_fut = Some(read_fut);
+                                }
+                            }
+                        } else {
+                            // No block — skip straight to oplog flush.
+                            match Self::start_flush_oplog(
+                                &this.inner,
+                                this.changeset.as_ref().unwrap(),
+                                &mut this.pending_header,
+                                &this.bitfield_update,
+                            ) {
+                                Err(e) => return Poll::Ready(Err(e)),
+                                Ok(fut) => this.flush_oplog_fut = Some(fut),
+                            }
+                        }
+                        continue;
+                    }
+                }
+            }
+
+            // Initial: check fork, then start verify.
+            {
+                let inner = this.inner.lock().unwrap();
+                if this.proof.fork != inner.tree.fork {
+                    return Poll::Ready(Ok(false));
+                }
+            }
+            this.verify_fut = Some(VerifyProofFuture {
+                inner: this.inner.clone(),
+                proof: this.proof.clone(),
+                infos: None,
+                pending_read: None,
+            });
         }
     }
 }

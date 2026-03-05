@@ -49,7 +49,7 @@ pub trait ReplicationMethods: CoreInfo + Send {
     /// ref Core::verify_and_apply_proof
     fn verify_and_apply_proof(
         &self,
-        proof: &Proof,
+        proof: Proof,
     ) -> impl Future<Output = Result<bool, ReplicationMethodsError>> + Send;
     /// ref Core::missing_nodes
     fn missing_nodes(

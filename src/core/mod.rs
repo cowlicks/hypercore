@@ -298,11 +298,15 @@ impl Hypercore {
     /// Verify and apply proof received from peer, returns true if changed, false if not
     /// possible to apply.
     #[instrument(skip_all)]
-    pub async fn verify_and_apply_proof(&self, proof: &Proof) -> Result<bool, HypercoreError> {
+    pub async fn verify_and_apply_proof(&self, proof: Proof) -> Result<bool, HypercoreError> {
+        self.inner.verify_and_apply_proof(proof).await
+    }
+
+    #[allow(dead_code)]
+    async fn verify_and_apply_proof_old(&self, proof: &Proof) -> Result<bool, HypercoreError> {
         if proof.fork != ininner!(self).tree.fork {
             return Ok(false);
         }
-        // TODO rm clone pass as owned
         let changeset = self.inner.verify_proof(proof.clone()).await?;
         if !ininner!(self).tree.commitable(&changeset) {
             return Ok(false);
@@ -769,7 +773,7 @@ pub(crate) mod tests {
             .unwrap();
         assert!(
             hypercore_clone
-                .verify_and_apply_proof(&proof)
+                .verify_and_apply_proof(proof)
                 .await
                 .is_err()
         );
@@ -801,7 +805,7 @@ pub(crate) mod tests {
             )
             .await?
             .unwrap();
-        assert!(clone.verify_and_apply_proof(&proof).await?);
+        assert!(clone.verify_and_apply_proof(proof).await?);
         let main_info = main.info();
         let clone_info = clone.info();
         assert_eq!(main_info.byte_length, clone_info.byte_length);
@@ -816,7 +820,7 @@ pub(crate) mod tests {
             .create_proof(Some(RequestBlock { index, nodes }), None, None, None)
             .await?
             .unwrap();
-        assert!(clone.verify_and_apply_proof(&proof).await?);
+        assert!(clone.verify_and_apply_proof(proof).await?);
         Ok(())
     }
 

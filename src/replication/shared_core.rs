@@ -39,7 +39,7 @@ impl CoreInfo for SharedCore {
 }
 
 impl ReplicationMethods for SharedCore {
-    async fn verify_and_apply_proof(&self, proof: &Proof) -> Result<bool, ReplicationMethodsError> {
+    async fn verify_and_apply_proof(&self, proof: Proof) -> Result<bool, ReplicationMethodsError> {
         Ok(self.0.lock().await.verify_and_apply_proof(proof).await?)
     }
 
@@ -169,7 +169,7 @@ mod tests {
             )
             .await?
             .unwrap();
-        assert!(clone.verify_and_apply_proof(&proof).await?);
+        assert!(clone.verify_and_apply_proof(proof).await?);
         let main_info = main.info().await;
         let clone_info = clone.info().await;
         assert_eq!(main_info.byte_length, clone_info.byte_length);
@@ -184,7 +184,7 @@ mod tests {
             .create_proof(Some(RequestBlock { index, nodes }), None, None, None)
             .await?
             .unwrap();
-        assert!(clone.verify_and_apply_proof(&proof).await?);
+        assert!(clone.verify_and_apply_proof(proof).await?);
         Ok(())
     }
 }
