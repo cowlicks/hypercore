@@ -500,6 +500,102 @@ impl HypercoreInner {
             pending_read: None,
         }
     }
+
+    pub(crate) fn create_proof(
+        &self,
+        block: Option<RequestBlock>,
+        hash: Option<RequestBlock>,
+        seek: Option<RequestSeek>,
+        upgrade: Option<RequestUpgrade>,
+    ) -> CreateProofFuture {
+        CreateProofFuture {
+            inner: self.inner.clone(),
+            block,
+            hash,
+            seek,
+            upgrade,
+            valueless_proof_fut: None,
+            valueless_proof: None,
+            get_fut: None,
+        }
+    }
+}
+
+pub(crate) struct CreateProofFuture {
+    inner: Arc<Mutex<HypercoreInnerInner>>,
+    block: Option<RequestBlock>,
+    hash: Option<RequestBlock>,
+    seek: Option<RequestSeek>,
+    upgrade: Option<RequestUpgrade>,
+    // Phase 1: build the proof structure (without block data)
+    valueless_proof_fut: Option<ValuelessProofFuture>,
+    valueless_proof: Option<ValuelessProof>,
+    // Phase 2: fetch the block value (only when proof.block is Some)
+    get_fut: Option<GetFuture>,
+}
+
+impl Future for CreateProofFuture {
+    type Output = Result<Option<Proof>, HypercoreError>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+
+        loop {
+            // Phase 2: fetch block value.
+            if let Some(fut) = this.get_fut.as_mut() {
+                match Pin::new(fut).poll(cx) {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                    Poll::Ready(Ok(data)) => {
+                        this.get_fut = None;
+                        let vp = this.valueless_proof.take().unwrap();
+                        return match data {
+                            // Block not present locally — can't serve the proof.
+                            None => Poll::Ready(Ok(None)),
+                            Some(bytes) => {
+                                Poll::Ready(Ok(Some(vp.into_proof(Some(bytes.into_vec())))))
+                            }
+                        };
+                    }
+                }
+            }
+
+            // Phase 1: build the valueless proof.
+            if let Some(fut) = this.valueless_proof_fut.as_mut() {
+                match Pin::new(fut).poll(cx) {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                    Poll::Ready(Ok(vp)) => {
+                        this.valueless_proof_fut = None;
+                        if let Some(block) = vp.block.as_ref() {
+                            let index = block.index;
+                            this.valueless_proof = Some(vp);
+                            this.get_fut = Some(GetFuture {
+                                inner: this.inner.clone(),
+                                index,
+                                byte_range_fut: None,
+                                byte_range: None,
+                                block_read_fut: None,
+                            });
+                            continue;
+                        }
+                        return Poll::Ready(Ok(Some(vp.into_proof(None))));
+                    }
+                }
+            }
+
+            // Initial: start the valueless proof future.
+            this.valueless_proof_fut = Some(ValuelessProofFuture {
+                inner: this.inner.clone(),
+                block: this.block.take(),
+                hash: this.hash.take(),
+                seek: this.seek.take(),
+                upgrade: this.upgrade.take(),
+                infos: Vec::new(),
+                pending_read: None,
+            });
+        }
+    }
 }
 
 pub(crate) struct GetFuture {

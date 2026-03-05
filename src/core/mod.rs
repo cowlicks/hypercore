@@ -292,22 +292,7 @@ impl Hypercore {
         seek: Option<RequestSeek>,
         upgrade: Option<RequestUpgrade>,
     ) -> Result<Option<Proof>, HypercoreError> {
-        let valueless_proof = self
-            .inner
-            .create_valueless_proof(block, hash, seek, upgrade)
-            .await?;
-        let value: Option<Vec<u8>> = if let Some(block) = valueless_proof.block.as_ref() {
-            let value = self.get(block.index).await?;
-            if value.is_none() {
-                // The data value requested in the proof can not be read, we return None here
-                // and let the party requesting figure out what to do.
-                return Ok(None);
-            }
-            value
-        } else {
-            None
-        };
-        Ok(Some(valueless_proof.into_proof(value)))
+        self.inner.create_proof(block, hash, seek, upgrade).await
     }
 
     /// Verify and apply proof received from peer, returns true if changed, false if not
