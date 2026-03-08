@@ -1,9 +1,7 @@
 //! Hypercore's main abstraction. Exposes an append-only, secure log structure.
-mod inner;
+pub(crate) mod inner;
 
 use futures::future::Either;
-#[cfg(feature = "replication")]
-use std::sync::Mutex;
 use tracing::instrument;
 
 #[cfg(feature = "cache")]
@@ -48,8 +46,6 @@ macro_rules! ininner {
 #[derive(Debug)]
 pub struct Hypercore {
     pub(crate) inner: HypercoreInner,
-    #[cfg(feature = "replication")]
-    pub(crate) peers: Vec<Mutex<crate::replication::Peer>>,
 }
 
 /// Response from append, matches that of the Javascript result
@@ -85,8 +81,6 @@ impl Hypercore {
     ) -> Result<Hypercore, HypercoreError> {
         Ok(Hypercore {
             inner: HypercoreInner::new(storage, options).await?,
-            #[cfg(feature = "replication")]
-            peers: Default::default(),
         })
     }
 

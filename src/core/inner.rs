@@ -393,7 +393,7 @@ impl HypercoreInnerInner {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct HypercoreInner {
     pub(crate) inner: Arc<Mutex<HypercoreInnerInner>>,
 }
