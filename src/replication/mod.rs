@@ -182,7 +182,7 @@ struct ChannelState {
 
     // Outgoing batches; drained one at a time through pending_send.
     outgoing: VecDeque<Vec<Message>>,
-    pending_send: Option<Pin<Box<dyn Future<Output = io::Result<()>>>>>,
+    pending_send: Option<Pin<Box<dyn Future<Output = io::Result<()>> + Send>>>,
 
     // Incoming Request → create_proof
     pending_create_proof: Option<CreateProofFuture>,
@@ -307,7 +307,7 @@ impl ChannelState {
                     if let Some(next) = self.pending_request_indices.pop_front() {
                         self.pending_missing_nodes = Some((
                             next,
-                            inner.missing_nodes_from_merkle_tree_index(next),
+                            inner.missing_nodes_from_merkle_tree_index(next * 2),
                         ));
                         cx.waker().wake_by_ref();
                     }
@@ -318,7 +318,7 @@ impl ChannelState {
         } else if let Some(index) = self.pending_request_indices.pop_front() {
             self.pending_missing_nodes = Some((
                 index,
-                inner.missing_nodes_from_merkle_tree_index(index),
+                inner.missing_nodes_from_merkle_tree_index(index * 2),
             ));
             cx.waker().wake_by_ref();
         }
@@ -504,7 +504,7 @@ pub struct Replicator {
     protocol: Protocol,
     discovery_key: [u8; 32],
     public_key: [u8; 32],
-    pending_open: Option<Pin<Box<dyn Future<Output = io::Result<()>>>>>,
+    pending_open: Option<Pin<Box<dyn Future<Output = io::Result<()>> + Send>>>,
     channel_state: Option<ChannelState>,
 }
 
