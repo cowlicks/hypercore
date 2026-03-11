@@ -752,7 +752,7 @@ pub(crate) mod tests {
     async fn core_verify_proof_invalid_signature() -> Result<(), HypercoreError> {
         let hypercore = create_hypercore_with_data(10).await?;
         // Invalid clone hypercore with a different public key
-        let mut hypercore_clone = create_hypercore_with_data(0).await?;
+        let hypercore_clone = create_hypercore_with_data(0).await?;
         let proof = hypercore
             .create_proof(
                 None,
@@ -772,10 +772,10 @@ pub(crate) mod tests {
     #[async_std::test]
     async fn core_verify_and_apply_proof() -> Result<(), HypercoreError> {
         let main = create_hypercore_with_data(10).await?;
-        let mut clone = create_hypercore_with_data_and_key_pair(
+        let clone = create_hypercore_with_data_and_key_pair(
             0,
             PartialKeypair {
-                public: ininner!(main).key_pair.public,
+                public: { ininner!(main).key_pair.public },
                 secret: None,
             },
         )

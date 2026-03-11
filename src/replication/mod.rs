@@ -283,7 +283,6 @@ impl ChannelState {
 
         // ── Drive pending_missing_nodes ────────────────────────────────────────
         if let Some((index, ref mut fut)) = self.pending_missing_nodes {
-            let index = index;
             match Pin::new(fut).poll(cx) {
                 Poll::Ready(Ok(nodes)) => {
                     self.pending_missing_nodes = None;
@@ -379,7 +378,7 @@ impl ChannelState {
 
     fn on_message(&mut self, message: Message, inner: &HypercoreInner) {
         match message {
-            Message::Synchronize(msg) => self.on_synchronize(msg, inner),
+            Message::Synchronize(msg) => self.on_synchronize(&msg, inner),
             Message::Request(msg) => {
                 if self.pending_create_proof.is_none() {
                     self.pending_create_proof_id = msg.id;
@@ -408,7 +407,7 @@ impl ChannelState {
         }
     }
 
-    fn on_synchronize(&mut self, msg: Synchronize, inner: &HypercoreInner) {
+    fn on_synchronize(&mut self, msg: &Synchronize, inner: &HypercoreInner) {
         let info = inner.info();
         let peer_length_changed = msg.length != self.state.remote_length;
         let first_sync = !self.state.remote_synced;
