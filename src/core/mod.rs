@@ -378,7 +378,7 @@ impl Hypercore {
                 let HypercoreInnerInner {
                     bitfield, header, ..
                 } = &mut *ininner!(self);
-                update_contiguous_length(header, bitfield, &bitfield_update);
+                update_contiguous_length(header, bitfield, bitfield_update);
             }
         }
 
@@ -765,12 +765,7 @@ pub(crate) mod tests {
             )
             .await?
             .unwrap();
-        assert!(
-            hypercore_clone
-                .verify_and_apply_proof(proof)
-                .await
-                .is_err()
-        );
+        assert!(hypercore_clone.verify_and_apply_proof(proof).await.is_err());
         Ok(())
     }
 

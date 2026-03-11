@@ -14,9 +14,8 @@ use std::{
 use futures::Stream;
 use hypercore_handshake::CipherTrait;
 use hypercore_protocol::{
-    Channel, Protocol, discovery_key,
+    Channel, Message, Protocol, discovery_key,
     schema::{Data, Range, Request, Synchronize},
-    Message,
 };
 #[cfg(feature = "shared-core")]
 pub use shared_core::SharedCore;
@@ -24,7 +23,9 @@ use tracing::{error, warn};
 
 use crate::{
     AppendOutcome, Hypercore, HypercoreError, Info, PartialKeypair,
-    core::inner::{CreateProofFuture, HypercoreInner, MissingNodesFuture, VerifyAndApplyProofFuture},
+    core::inner::{
+        CreateProofFuture, HypercoreInner, MissingNodesFuture, VerifyAndApplyProofFuture,
+    },
 };
 use hypercore_schema::{RequestBlock, RequestSeek, RequestUpgrade};
 
@@ -234,14 +235,12 @@ impl ChannelState {
                 Poll::Pending => {}
             }
         }
-        if self.pending_send.is_none() {
-            if let Some(batch) = self.outgoing.pop_front() {
-                let channel = self.channel.clone();
-                self.pending_send = Some(Box::pin(async move {
-                    channel.send_batch(&batch).await
-                }));
-                cx.waker().wake_by_ref();
-            }
+        if self.pending_send.is_none()
+            && let Some(batch) = self.outgoing.pop_front()
+        {
+            let channel = self.channel.clone();
+            self.pending_send = Some(Box::pin(async move { channel.send_batch(&batch).await }));
+            cx.waker().wake_by_ref();
         }
 
         // ── Initial sync ───────────────────────────────────────────────────────
@@ -288,9 +287,7 @@ impl ChannelState {
             match Pin::new(fut).poll(cx) {
                 Poll::Ready(Ok(nodes)) => {
                     self.pending_missing_nodes = None;
-                    if self.state.remote_bitfield.get(index)
-                        && self.state.remote_length > index
-                    {
+                    if self.state.remote_bitfield.get(index) && self.state.remote_length > index {
                         let info = inner.info();
                         self.outgoing.push_back(vec![Message::Request(Request {
                             id: index + 1,
@@ -305,10 +302,8 @@ impl ChannelState {
                         cx.waker().wake_by_ref();
                     }
                     if let Some(next) = self.pending_request_indices.pop_front() {
-                        self.pending_missing_nodes = Some((
-                            next,
-                            inner.missing_nodes_from_merkle_tree_index(next * 2),
-                        ));
+                        self.pending_missing_nodes =
+                            Some((next, inner.missing_nodes_from_merkle_tree_index(next * 2)));
                         cx.waker().wake_by_ref();
                     }
                 }
@@ -316,10 +311,8 @@ impl ChannelState {
                 Poll::Pending => {}
             }
         } else if let Some(index) = self.pending_request_indices.pop_front() {
-            self.pending_missing_nodes = Some((
-                index,
-                inner.missing_nodes_from_merkle_tree_index(index * 2),
-            ));
+            self.pending_missing_nodes =
+                Some((index, inner.missing_nodes_from_merkle_tree_index(index * 2)));
             cx.waker().wake_by_ref();
         }
 
@@ -356,7 +349,8 @@ impl ChannelState {
                         let next_index = if meta.has_upgrade {
                             (meta.pre_length < meta.remote_length).then_some(meta.pre_length)
                         } else {
-                            meta.block_index.filter(|&i| i < meta.remote_length.saturating_sub(1))
+                            meta.block_index
+                                .filter(|&i| i < meta.remote_length.saturating_sub(1))
                                 .map(|i| i + 1)
                         };
                         if let Some(idx) = next_index {
@@ -465,8 +459,7 @@ impl ChannelState {
     fn on_core_event(&mut self, event: events::Event, inner: &HypercoreInner) {
         match event {
             events::Event::Get(evt) => {
-                if self.state.remote_length > evt.index
-                    && self.state.remote_bitfield.get(evt.index)
+                if self.state.remote_length > evt.index && self.state.remote_bitfield.get(evt.index)
                 {
                     self.pending_request_indices.push_back(evt.index);
                 }
@@ -480,14 +473,15 @@ impl ChannelState {
             }
             events::Event::DataUpgrade(_) => {
                 let info = inner.info();
-                self.outgoing.push_back(vec![Message::Synchronize(Synchronize {
-                    fork: info.fork,
-                    length: info.length,
-                    remote_length: self.state.remote_length,
-                    downloading: true,
-                    uploading: true,
-                    can_upgrade: self.state.can_upgrade,
-                })]);
+                self.outgoing
+                    .push_back(vec![Message::Synchronize(Synchronize {
+                        fork: info.fork,
+                        length: info.length,
+                        remote_length: self.state.remote_length,
+                        downloading: true,
+                        uploading: true,
+                        can_upgrade: self.state.can_upgrade,
+                    })]);
             }
         }
     }
@@ -568,14 +562,12 @@ impl Replicator {
         match event {
             hypercore_protocol::Event::Handshake(_) => {
                 if self.protocol.is_initiator() {
-                    self.pending_open =
-                        Some(Box::pin(self.protocol.open(self.public_key)));
+                    self.pending_open = Some(Box::pin(self.protocol.open(self.public_key)));
                 }
             }
             hypercore_protocol::Event::DiscoveryKey(dkey) => {
                 if self.discovery_key == dkey {
-                    self.pending_open =
-                        Some(Box::pin(self.protocol.open(self.public_key)));
+                    self.pending_open = Some(Box::pin(self.protocol.open(self.public_key)));
                 } else {
                     warn!("Got discovery key for different core: {dkey:?}");
                 }

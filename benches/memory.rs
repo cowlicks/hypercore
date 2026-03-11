@@ -1,4 +1,7 @@
-use std::{sync::Arc, time::{Duration, Instant}};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use hypercore::{Hypercore, HypercoreBuilder, HypercoreError, Storage};

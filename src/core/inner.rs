@@ -941,7 +941,10 @@ impl VerifyAndApplyProofFuture {
     ) -> Result<BoxFuture<Result<(), HypercoreError>>, HypercoreError> {
         let (storage, infos) = {
             let mut guard = inner.lock().unwrap();
-            let OplogCreateHeaderOutcome { header, infos_to_flush } = {
+            let OplogCreateHeaderOutcome {
+                header,
+                infos_to_flush,
+            } = {
                 let HypercoreInnerInner { oplog, header, .. } = &mut *guard;
                 oplog.append_changeset(changeset, bitfield_update.clone(), false, header)?
             };
@@ -961,10 +964,14 @@ impl VerifyAndApplyProofFuture {
         {
             let inner = inner.lock().unwrap();
             if proof.upgrade.is_some() {
-                let _ = inner.events.send(crate::replication::events::DataUpgrade {});
+                let _ = inner
+                    .events
+                    .send(crate::replication::events::DataUpgrade {});
             }
             if let Some(bu) = bitfield_update {
-                let _ = inner.events.send(crate::replication::events::Have::from(bu));
+                let _ = inner
+                    .events
+                    .send(crate::replication::events::Have::from(bu));
             }
         }
         let _ = (inner, proof, bitfield_update);
@@ -1003,13 +1010,14 @@ impl Future for VerifyAndApplyProofFuture {
                             inner.header = this.pending_header.take().unwrap();
                             if let Some(ref bu) = this.bitfield_update {
                                 inner.bitfield.update(bu);
-                                let HypercoreInnerInner { bitfield, header, .. } = &mut *inner;
+                                let HypercoreInnerInner {
+                                    bitfield, header, ..
+                                } = &mut *inner;
                                 update_contiguous_length(header, bitfield, bu);
                             }
                             let changeset = this.changeset.take().unwrap();
-                            match inner.tree.commit(changeset) {
-                                Err(e) => return Poll::Ready(Err(e)),
-                                Ok(()) => {}
+                            if let Err(e) = inner.tree.commit(changeset) {
+                                return Poll::Ready(Err(e));
                             }
                             if inner.should_flush_bitfield_and_tree_and_oplog() {
                                 Some(inner.flush_bitfield_and_tree_and_oplog(false))
@@ -1060,13 +1068,11 @@ impl Future for VerifyAndApplyProofFuture {
                         let changeset = this.changeset.as_ref().unwrap();
                         let flush_fut = {
                             let inner = this.inner.lock().unwrap();
-                            let byte_offset = match inner
-                                .tree
-                                .byte_offset_in_changeset(
-                                    block.index,
-                                    changeset,
-                                    Some(&this.byte_offset_infos),
-                                ) {
+                            let byte_offset = match inner.tree.byte_offset_in_changeset(
+                                block.index,
+                                changeset,
+                                Some(&this.byte_offset_infos),
+                            ) {
                                 Err(e) => return Poll::Ready(Err(e)),
                                 Ok(Either::Right(v)) => v,
                                 Ok(Either::Left(_)) => {
@@ -1075,7 +1081,7 @@ impl Future for VerifyAndApplyProofFuture {
                                             "Could not read offset for index {} from tree",
                                             block.index
                                         ),
-                                    }))
+                                    }));
                                 }
                             };
                             let info = inner.block_store.put(&block.value, byte_offset);
@@ -1113,14 +1119,14 @@ impl Future for VerifyAndApplyProofFuture {
                             let changeset = this.changeset.as_ref().unwrap();
                             let next = {
                                 let inner = this.inner.lock().unwrap();
-                                match inner
-                                    .tree
-                                    .byte_offset_in_changeset(block.index, changeset, None)
-                                {
+                                match inner.tree.byte_offset_in_changeset(
+                                    block.index,
+                                    changeset,
+                                    None,
+                                ) {
                                     Err(e) => return Poll::Ready(Err(e)),
                                     Ok(Either::Right(byte_offset)) => {
-                                        let info =
-                                            inner.block_store.put(&block.value, byte_offset);
+                                        let info = inner.block_store.put(&block.value, byte_offset);
                                         let storage = inner.storage.clone();
                                         drop(inner);
                                         let bu = BitfieldUpdate {
@@ -1133,9 +1139,9 @@ impl Future for VerifyAndApplyProofFuture {
                                     Ok(Either::Left(instructions)) => {
                                         let storage = inner.storage.clone();
                                         drop(inner);
-                                        Either::Left(storage.read_infos_to_vec(Vec::from(
-                                            instructions,
-                                        )))
+                                        Either::Left(
+                                            storage.read_infos_to_vec(Vec::from(instructions)),
+                                        )
                                     }
                                 }
                             };
