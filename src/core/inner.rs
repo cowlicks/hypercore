@@ -266,131 +266,6 @@ impl HypercoreInnerInner {
 
         self.storage.flush_infos(infos)
     }
-
-    pub(crate) async fn verify_proof(
-        &self,
-        proof: &Proof,
-    ) -> Result<MerkleTreeChangeset, HypercoreError> {
-        match self.tree.verify_proof(proof, &self.key_pair.public, None)? {
-            Either::Right(value) => Ok(value),
-            Either::Left(instructions) => {
-                let infos = self
-                    .storage
-                    .read_infos_to_vec(Vec::from(instructions))
-                    .await?;
-                match self
-                    .tree
-                    .verify_proof(proof, &self.key_pair.public, Some(&infos))?
-                {
-                    Either::Right(value) => Ok(value),
-                    Either::Left(_) => Err(HypercoreError::InvalidOperation {
-                        context: "Could not verify proof from tree".to_string(),
-                    }),
-                }
-            }
-        }
-    }
-
-    #[instrument(err, skip(self))]
-    pub(crate) async fn missing_nodes_from_merkle_tree_index(
-        &self,
-        merkle_tree_index: u64,
-    ) -> Result<u64, HypercoreError> {
-        match self.tree.missing_nodes(merkle_tree_index, None)? {
-            Either::Right(value) => Ok(value),
-            Either::Left(instructions) => {
-                let mut instructions = instructions;
-                let mut infos: Vec<StoreInfo> = vec![];
-                loop {
-                    infos.extend(
-                        self.storage
-                            .read_infos_to_vec(Vec::from(instructions))
-                            .await?,
-                    );
-                    match self.tree.missing_nodes(merkle_tree_index, Some(&infos))? {
-                        Either::Right(value) => {
-                            return Ok(value);
-                        }
-                        Either::Left(new_instructions) => {
-                            instructions = new_instructions;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    pub(crate) async fn byte_range(
-        &self,
-        index: u64,
-        initial_infos: Option<&[StoreInfo]>,
-    ) -> Result<NodeByteRange, HypercoreError> {
-        match self.tree.byte_range(index, initial_infos)? {
-            Either::Right(value) => Ok(value),
-            Either::Left(instructions) => {
-                let mut instructions = instructions;
-                let mut infos: Vec<StoreInfo> = vec![];
-                loop {
-                    infos.extend(
-                        self.storage
-                            .read_infos_to_vec(Vec::from(instructions))
-                            .await?,
-                    );
-                    match self.tree.byte_range(index, Some(&infos))? {
-                        Either::Right(value) => {
-                            return Ok(value);
-                        }
-                        Either::Left(new_instructions) => {
-                            instructions = new_instructions;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    pub(crate) async fn create_valueless_proof(
-        &self,
-        block: Option<RequestBlock>,
-        hash: Option<RequestBlock>,
-        seek: Option<RequestSeek>,
-        upgrade: Option<RequestUpgrade>,
-    ) -> Result<ValuelessProof, HypercoreError> {
-        match self.tree.create_valueless_proof(
-            block.as_ref(),
-            hash.as_ref(),
-            seek.as_ref(),
-            upgrade.as_ref(),
-            None,
-        )? {
-            Either::Right(value) => Ok(value),
-            Either::Left(instructions) => {
-                let mut instructions = instructions;
-                let mut infos: Vec<StoreInfo> = vec![];
-                loop {
-                    infos.extend(
-                        self.storage
-                            .read_infos_to_vec(Vec::from(instructions))
-                            .await?,
-                    );
-                    match self.tree.create_valueless_proof(
-                        block.as_ref(),
-                        hash.as_ref(),
-                        seek.as_ref(),
-                        upgrade.as_ref(),
-                        Some(&infos),
-                    )? {
-                        Either::Right(value) => {
-                            return Ok(value);
-                        }
-                        Either::Left(new_instructions) => {
-                            instructions = new_instructions;
-                        }
-                    }
-                }
-            }
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -499,24 +374,6 @@ impl HypercoreInner {
         }
     }
 
-    pub(crate) fn create_valueless_proof(
-        &self,
-        block: Option<RequestBlock>,
-        hash: Option<RequestBlock>,
-        seek: Option<RequestSeek>,
-        upgrade: Option<RequestUpgrade>,
-    ) -> ValuelessProofFuture {
-        ValuelessProofFuture {
-            inner: self.inner.clone(),
-            block,
-            hash,
-            seek,
-            upgrade,
-            infos: Vec::new(),
-            pending_read: None,
-        }
-    }
-
     pub(crate) fn create_proof(
         &self,
         block: Option<RequestBlock>,
@@ -601,15 +458,15 @@ impl Future for CreateProofFuture {
             }
 
             // Initial: start the valueless proof future.
-            this.valueless_proof_fut = Some(ValuelessProofFuture {
-                inner: this.inner.clone(),
-                block: this.block.take(),
-                hash: this.hash.take(),
-                seek: this.seek.take(),
-                upgrade: this.upgrade.take(),
-                infos: Vec::new(),
-                pending_read: None,
-            });
+            this.valueless_proof_fut = Some(ValuelessProofFuture::new(
+                this.inner.clone(),
+                this.block.take(),
+                this.hash.take(),
+                this.seek.take(),
+                this.upgrade.take(),
+                Vec::new(),
+                None,
+            ));
         }
     }
 }
@@ -854,6 +711,28 @@ pub(crate) struct ValuelessProofFuture {
     upgrade: Option<RequestUpgrade>,
     infos: Vec<StoreInfo>,
     pending_read: Option<BoxFuture<Result<Vec<StoreInfo>, HypercoreError>>>,
+}
+
+impl ValuelessProofFuture {
+    fn new(
+        inner: Arc<Mutex<HypercoreInnerInner>>,
+        block: Option<RequestBlock>,
+        hash: Option<RequestBlock>,
+        seek: Option<RequestSeek>,
+        upgrade: Option<RequestUpgrade>,
+        infos: Vec<StoreInfo>,
+        pending_read: Option<BoxFuture<Result<Vec<StoreInfo>, HypercoreError>>>,
+    ) -> Self {
+        Self {
+            inner,
+            block,
+            hash,
+            seek,
+            upgrade,
+            infos,
+            pending_read,
+        }
+    }
 }
 
 impl Future for ValuelessProofFuture {
