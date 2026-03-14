@@ -11,7 +11,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use futures::Stream;
+use futures::{Stream, StreamExt, stream::{FuturesUnordered, SelectAll}};
 use hypercore_handshake::CipherTrait;
 use hypercore_protocol::{
     Channel, Message, Protocol, discovery_key,
@@ -486,13 +486,11 @@ impl ChannelState {
     }
 }
 
-// ── Replicator ─────────────────────────────────────────────────────────────────
+// ── ConnectionReplicator ───────────────────────────────────────────────────────
 
-/// Drives replication for a single peer connection.
-///
-/// Created by [`Hypercore::replicate`]. Poll it as a `Future` to drive
-/// replication; it resolves when the connection closes.
-pub struct Replicator {
+/// Drives replication for a single peer connection. Used internally by
+/// [`Replicator`].
+struct ConnectionReplicator {
     inner: HypercoreInner,
     protocol: Protocol,
     discovery_key: [u8; 32],
@@ -501,15 +499,7 @@ pub struct Replicator {
     channel_state: Option<ChannelState>,
 }
 
-impl std::fmt::Debug for Replicator {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Replicator")
-            .field("discovery_key", &self.discovery_key)
-            .finish()
-    }
-}
-
-impl Replicator {
+impl ConnectionReplicator {
     fn new(inner: HypercoreInner, stream: impl CipherTrait + 'static) -> Self {
         let protocol = Protocol::new(Box::new(stream));
         let public_key = inner.key_pair().public.to_bytes();
@@ -524,8 +514,7 @@ impl Replicator {
         }
     }
 
-    fn poll_replicator(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), HypercoreError>> {
-        // Drive pending protocol.open()
+    fn poll_inner(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), HypercoreError>> {
         if let Some(ref mut fut) = self.pending_open {
             match fut.as_mut().poll(cx) {
                 Poll::Ready(Ok(())) => self.pending_open = None,
@@ -534,7 +523,6 @@ impl Replicator {
             }
         }
 
-        // Poll protocol for the next handshake/channel event
         match Pin::new(&mut self.protocol).poll_next(cx) {
             Poll::Ready(Some(Ok(event))) => {
                 self.on_protocol_event(event);
@@ -545,7 +533,6 @@ impl Replicator {
             Poll::Pending => {}
         }
 
-        // Drive channel state
         if let Some(ref mut cs) = self.channel_state {
             match cs.poll(cx, &self.inner) {
                 Poll::Ready(Ok(())) => self.channel_state = None,
@@ -585,23 +572,131 @@ impl Replicator {
     }
 }
 
+impl Future for ConnectionReplicator {
+    type Output = Result<(), HypercoreError>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        self.get_mut().poll_inner(cx)
+    }
+}
+
+// ── Replicator ─────────────────────────────────────────────────────────────────
+
+type BoxReplicatorStream = Pin<Box<dyn Stream<Item = ConnectionReplicator> + Send>>;
+
+/// Drives replication for one or more peer connections.
+///
+/// Created by [`Hypercore::replicator`]. Add connections via
+/// [`with_connection`](Replicator::with_connection) or whole connection streams
+/// via [`with_connection_stream`](Replicator::with_connection_stream), then
+/// `.await` to drive all replication. Resolves when all connections have closed
+/// and all connection streams have ended.
+pub struct Replicator {
+    inner: HypercoreInner,
+    active: FuturesUnordered<ConnectionReplicator>,
+    pending: SelectAll<BoxReplicatorStream>,
+}
+
+impl std::fmt::Debug for Replicator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Replicator")
+            .field("active_count", &self.active.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl Replicator {
+    fn new(inner: HypercoreInner) -> Self {
+        Self {
+            inner,
+            active: FuturesUnordered::new(),
+            pending: SelectAll::new(),
+        }
+    }
+
+    /// Add a single connection to replicate over.
+    pub fn with_connection(self, stream: impl CipherTrait + 'static) -> Self {
+        self.active.push(ConnectionReplicator::new(self.inner.clone(), stream));
+        self
+    }
+
+    /// Add a stream of connections. Each connection yielded by the stream will
+    /// be replicated in parallel with all others.
+    ///
+    /// ```rust,ignore
+    /// core.replicator()
+    ///     .with_connection_stream(swarm.connections().filter_map(|r| async move {
+    ///         r.ok().map(|e| e.connection)
+    ///     }))
+    ///     .await?;
+    /// ```
+    pub fn with_connection_stream<S, C>(mut self, stream: S) -> Self
+    where
+        S: Stream<Item = C> + Send + 'static,
+        C: CipherTrait + 'static,
+    {
+        let inner = self.inner.clone();
+        let boxed: BoxReplicatorStream =
+            Box::pin(stream.map(move |conn| ConnectionReplicator::new(inner.clone(), conn)));
+        self.pending.push(boxed);
+        self
+    }
+}
+
 impl Future for Replicator {
     type Output = Result<(), HypercoreError>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        self.get_mut().poll_replicator(cx)
+        let this = self.get_mut();
+
+        // Drain pending connection streams → push new ConnectionReplicators into active.
+        loop {
+            match Pin::new(&mut this.pending).poll_next(cx) {
+                Poll::Ready(Some(rep)) => this.active.push(rep),
+                Poll::Ready(None) | Poll::Pending => break,
+            }
+        }
+
+        // Drive all active connection replicators.
+        loop {
+            match Pin::new(&mut this.active).poll_next(cx) {
+                Poll::Ready(Some(Ok(()))) => {}
+                Poll::Ready(Some(Err(e))) => return Poll::Ready(Err(e)),
+                Poll::Ready(None) | Poll::Pending => break,
+            }
+        }
+
+        if this.pending.is_empty() && this.active.is_empty() {
+            Poll::Ready(Ok(()))
+        } else {
+            Poll::Pending
+        }
     }
 }
 
-// ── Hypercore::replicate ───────────────────────────────────────────────────────
+// ── Hypercore::replicator / replicate ─────────────────────────────────────────
 
 impl Hypercore {
-    /// Begin replicating with a remote peer over the given encrypted stream.
+    /// Create a [`Replicator`] for this core. Add connections or connection
+    /// streams, then `.await` to drive all replication.
     ///
-    /// Returns a [`Replicator`] that must be driven to completion (e.g. via
-    /// `.await`) to perform replication. Multiple replicators can be active
-    /// simultaneously.
+    /// ```rust,ignore
+    /// // Single connection
+    /// core.replicator().with_connection(stream).await?;
+    ///
+    /// // Stream of connections (e.g. from hyperswarm)
+    /// core.replicator()
+    ///     .with_connection_stream(swarm.connections().filter_map(|r| async move {
+    ///         r.ok().map(|e| e.connection)
+    ///     }))
+    ///     .await?;
+    /// ```
+    pub fn replicator(&self) -> Replicator {
+        Replicator::new(self.inner.clone())
+    }
+
+    /// Shorthand for `self.replicator().with_connection(stream)`.
     pub fn replicate(&self, stream: impl CipherTrait + 'static) -> Replicator {
-        Replicator::new(self.inner.clone(), stream)
+        self.replicator().with_connection(stream)
     }
 }

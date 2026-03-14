@@ -114,20 +114,7 @@ async fn replicate_many_blocks() {
     let writer_rep = tokio::spawn(writer.replicate(writer_stream));
     let reader_rep = tokio::spawn(reader.replicate(reader_stream));
 
-    // Collect a snapshot every 50ms so we can see where it stalls
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-    loop {
-        let info = reader.info();
-        eprintln!(
-            "reader: length={} contiguous={} byte_length={}",
-            info.length, info.contiguous_length, info.byte_length
-        );
-        if info.contiguous_length >= 10 {
-            break;
-        }
-        assert!(tokio::time::Instant::now() < deadline, "timed out");
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
+    wait_for_length(&reader, 10).await;
 
     for (i, expected) in data.iter().enumerate() {
         assert_eq!(
