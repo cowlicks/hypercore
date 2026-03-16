@@ -268,9 +268,33 @@ impl HypercoreInnerInner {
     }
 }
 
-#[derive(Debug, Clone)]
+/// Shared slot for a background replicator, driven whenever `Hypercore::get` polls.
+#[cfg(feature = "replication")]
+pub(crate) type BackgroundFuture = Arc<
+    Mutex<Option<Pin<Box<dyn std::future::Future<Output = Result<(), HypercoreError>> + Send>>>>,
+>;
+
 pub(crate) struct HypercoreInner {
     pub(crate) inner: Arc<Mutex<HypercoreInnerInner>>,
+    /// Replicator driven in-band by any `Hypercore::get` that must wait for a block.
+    #[cfg(feature = "replication")]
+    pub(crate) background: BackgroundFuture,
+}
+
+impl std::fmt::Debug for HypercoreInner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HypercoreInner").finish_non_exhaustive()
+    }
+}
+
+impl Clone for HypercoreInner {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            #[cfg(feature = "replication")]
+            background: self.background.clone(),
+        }
+    }
 }
 
 impl HypercoreInner {
@@ -282,6 +306,8 @@ impl HypercoreInner {
             inner: Arc::new(Mutex::new(
                 HypercoreInnerInner::new(storage, options).await?,
             )),
+            #[cfg(feature = "replication")]
+            background: Arc::new(Mutex::new(None)),
         })
     }
     pub(crate) fn info(&self) -> Info {
@@ -371,6 +397,10 @@ impl HypercoreInner {
             byte_range_fut: None,
             byte_range: None,
             block_read_fut: None,
+            #[cfg(feature = "replication")]
+            background: self.background.clone(),
+            #[cfg(feature = "replication")]
+            waiting: None,
         }
     }
 
@@ -449,6 +479,11 @@ impl Future for CreateProofFuture {
                                 byte_range_fut: None,
                                 byte_range: None,
                                 block_read_fut: None,
+                                // CreateProofFuture serves local data only; no waiting.
+                                #[cfg(feature = "replication")]
+                                background: Arc::new(Mutex::new(None)),
+                                #[cfg(feature = "replication")]
+                                waiting: None,
                             });
                             continue;
                         }
@@ -479,6 +514,64 @@ pub(crate) struct GetFuture {
     // Phase 2: read block from storage (only needed if block_store has no cached value)
     byte_range: Option<NodeByteRange>,
     block_read_fut: Option<BoxFuture<Result<StoreInfo, HypercoreError>>>,
+    // Replication: drive the background replicator while waiting for this block.
+    #[cfg(feature = "replication")]
+    background: BackgroundFuture,
+    #[cfg(feature = "replication")]
+    waiting: Option<async_broadcast::Receiver<crate::replication::events::Event>>,
+}
+
+impl GetFuture {
+    /// Drive the background replicator and wait for a `Have` or `DataUpgrade` event.
+    /// Returns `Poll::Pending` while waiting, `Poll::Ready(Ok(None))` if no replicator
+    /// is attached or replication has finished without delivering the block.
+    #[cfg(feature = "replication")]
+    fn poll_background_and_wait(
+        &mut self,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<Option<Box<[u8]>>, HypercoreError>> {
+        use crate::replication::events::Event;
+
+        // Drive the background replicator.
+        let bg_done = {
+            let mut bg = self.background.lock().unwrap();
+            match bg.as_mut() {
+                None => true,
+                Some(fut) => match fut.as_mut().poll(cx) {
+                    Poll::Ready(Ok(())) => {
+                        *bg = None;
+                        true
+                    }
+                    Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                    Poll::Pending => false,
+                },
+            }
+        };
+
+        // Drain events; any Have/DataUpgrade means new data may be available.
+        if let Some(ref mut rx) = self.waiting {
+            use futures::Stream as _;
+            loop {
+                match Pin::new(&mut *rx).poll_next(cx) {
+                    Poll::Ready(Some(Event::Have(_) | Event::DataUpgrade(_))) => {
+                        self.waiting = None;
+                        cx.waker().wake_by_ref();
+                        return Poll::Pending;
+                    }
+                    Poll::Ready(Some(Event::Get(_))) => {}
+                    Poll::Ready(None) => return Poll::Ready(Ok(None)),
+                    Poll::Pending => break,
+                }
+            }
+        }
+
+        // Background finished without delivering the block.
+        if bg_done {
+            return Poll::Ready(Ok(None));
+        }
+
+        Poll::Pending
+    }
 }
 
 impl Future for GetFuture {
@@ -530,13 +623,33 @@ impl Future for GetFuture {
                 continue;
             }
 
-            // Initial: check bitfield, then start byte range resolution.
+            // Initial: check bitfield; if block is missing, wait for replication.
             {
                 let inner = this.inner.lock().unwrap();
                 if !inner.bitfield.get(this.index) {
-                    #[cfg(feature = "replication")]
-                    inner.events.send_on_get(this.index);
+                    #[cfg(not(feature = "replication"))]
                     return Poll::Ready(Ok(None));
+
+                    #[cfg(feature = "replication")]
+                    {
+                        // First miss: check whether a background replicator is attached.
+                        if this.waiting.is_none() {
+                            inner.events.send_on_get(this.index);
+                            if this.background.lock().unwrap().is_none() {
+                                // No replicator — return None immediately (original behaviour).
+                                dbg!();
+                                return Poll::Ready(Ok(None));
+                            }
+                            // Subscribe before emitting Get so we can't miss the Have reply.
+                            let rx = inner.event_subscribe();
+                            inner.events.send_on_get(this.index);
+                            drop(inner);
+                            this.waiting = Some(rx);
+                        } else {
+                            drop(inner);
+                        }
+                        return this.poll_background_and_wait(cx);
+                    }
                 }
             }
             this.byte_range_fut = Some(ByteRangeFuture {

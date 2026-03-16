@@ -11,7 +11,10 @@ use std::{
     task::{Context, Poll},
 };
 
-use futures::{Stream, StreamExt, stream::{FuturesUnordered, SelectAll}};
+use futures::{
+    Stream, StreamExt,
+    stream::{FuturesUnordered, SelectAll},
+};
 use hypercore_handshake::CipherTrait;
 use hypercore_protocol::{
     Channel, Message, Protocol, discovery_key,
@@ -616,7 +619,8 @@ impl Replicator {
 
     /// Add a single connection to replicate over.
     pub fn with_connection(self, stream: impl CipherTrait + 'static) -> Self {
-        self.active.push(ConnectionReplicator::new(self.inner.clone(), stream));
+        self.active
+            .push(ConnectionReplicator::new(self.inner.clone(), stream));
         self
     }
 
@@ -698,5 +702,18 @@ impl Hypercore {
     /// Shorthand for `self.replicator().with_connection(stream)`.
     pub fn replicate(&self, stream: impl CipherTrait + 'static) -> Replicator {
         self.replicator().with_connection(stream)
+    }
+
+    /// Attach a replicator to this core so that [`Hypercore::get`] automatically
+    /// drives replication while waiting for missing blocks.
+    ///
+    /// Once attached, a `get` for a block that is not yet locally available will
+    /// block (without spinning) until replication delivers it, rather than
+    /// returning `None` immediately.
+    ///
+    /// Only one replicator can be attached at a time; calling this again replaces
+    /// the previous one.
+    pub fn attach_replicator(&self, replicator: Replicator) {
+        *self.inner.background.lock().unwrap() = Some(Box::pin(replicator));
     }
 }
