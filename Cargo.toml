@@ -53,13 +53,13 @@ optional = true
 path = "../handshake/"
 
 [dependencies.random-access-storage]
-path = "../ram/storage"
+version = "6.0.0-alpha"
 
 [dependencies.random-access-memory]
-path = "../ram/mem/"
+version = "4.0.0-alpha"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.random-access-disk]
-path = "../ram/disk"
+version = "4.0.0-alpha"
 default-features = false
 
 [dev-dependencies]
@@ -80,11 +80,10 @@ test-log = { version = "0.2.11", default-features = false, features = ["trace"] 
 tracing-subscriber = { version = "0.3.16", features = ["env-filter", "fmt"] }
 
 [features]
-default = ["tokio", "sparse", "replication", "cache"]
+default = ["sparse", "replication", "cache"]
 replication = ["dep:async-broadcast", "dep:hypercore-protocol", "dep:hypercore_handshake"]
 shared-core = ["replication", "dep:async-lock"]
 sparse = ["random-access-disk/sparse"]
-tokio = ["random-access-disk/tokio"]
 cache = ["moka"]
 # Used only in interoperability tests under tests/js-interop which use the javascript version of hypercore
 # to verify that this crate works. To run them, use:
