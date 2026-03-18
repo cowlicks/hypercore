@@ -453,7 +453,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::crypto::{PartialKeypair, generate_signing_key};
 
-    #[async_std::test]
+    #[tokio::test]
     async fn core_create_proof_block_only() -> Result<(), HypercoreError> {
         let hypercore = create_hypercore_with_data(10).await?;
 
@@ -471,7 +471,7 @@ pub(crate) mod tests {
         Ok(())
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn core_create_proof_block_and_upgrade() -> Result<(), HypercoreError> {
         let hypercore = create_hypercore_with_data(10).await?;
         let proof = hypercore
@@ -502,7 +502,7 @@ pub(crate) mod tests {
         Ok(())
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn core_create_proof_block_and_upgrade_and_additional() -> Result<(), HypercoreError> {
         let hypercore = create_hypercore_with_data(10).await?;
         let proof = hypercore
@@ -533,7 +533,7 @@ pub(crate) mod tests {
         Ok(())
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn core_create_proof_block_and_upgrade_from_existing_state() -> Result<(), HypercoreError>
     {
         let hypercore = create_hypercore_with_data(10).await?;
@@ -564,7 +564,7 @@ pub(crate) mod tests {
         Ok(())
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn core_create_proof_block_and_upgrade_from_existing_state_with_additional()
     -> Result<(), HypercoreError> {
         let hypercore = create_hypercore_with_data(10).await?;
@@ -596,7 +596,7 @@ pub(crate) mod tests {
         Ok(())
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn core_create_proof_block_and_seek_1_no_upgrade() -> Result<(), HypercoreError> {
         let hypercore = create_hypercore_with_data(10).await?;
         let proof = hypercore
@@ -618,7 +618,7 @@ pub(crate) mod tests {
         Ok(())
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn core_create_proof_block_and_seek_2_no_upgrade() -> Result<(), HypercoreError> {
         let hypercore = create_hypercore_with_data(10).await?;
         let proof = hypercore
@@ -640,7 +640,7 @@ pub(crate) mod tests {
         Ok(())
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn core_create_proof_block_and_seek_3_no_upgrade() -> Result<(), HypercoreError> {
         let hypercore = create_hypercore_with_data(10).await?;
         let proof = hypercore
@@ -664,7 +664,7 @@ pub(crate) mod tests {
         Ok(())
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn core_create_proof_block_and_seek_to_tree_no_upgrade() -> Result<(), HypercoreError> {
         let hypercore = create_hypercore_with_data(16).await?;
         let proof = hypercore
@@ -689,7 +689,7 @@ pub(crate) mod tests {
         Ok(())
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn core_create_proof_block_and_seek_with_upgrade() -> Result<(), HypercoreError> {
         let hypercore = create_hypercore_with_data(10).await?;
         let proof = hypercore
@@ -719,7 +719,7 @@ pub(crate) mod tests {
         Ok(())
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn core_create_proof_seek_with_upgrade() -> Result<(), HypercoreError> {
         let hypercore = create_hypercore_with_data(10).await?;
         let proof = hypercore
@@ -748,7 +748,7 @@ pub(crate) mod tests {
         Ok(())
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn core_verify_proof_invalid_signature() -> Result<(), HypercoreError> {
         let hypercore = create_hypercore_with_data(10).await?;
         // Invalid clone hypercore with a different public key
@@ -769,7 +769,7 @@ pub(crate) mod tests {
         Ok(())
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn core_verify_and_apply_proof() -> Result<(), HypercoreError> {
         let main = create_hypercore_with_data(10).await?;
         let clone = create_hypercore_with_data_and_key_pair(

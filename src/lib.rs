@@ -43,7 +43,6 @@
 //!
 //! ## Example
 //! ```rust
-//! # #[cfg(feature = "tokio")]
 //! # tokio_test::block_on(async {
 //! # example().await;
 //! # });

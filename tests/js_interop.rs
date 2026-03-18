@@ -5,10 +5,6 @@ use std::sync::Once;
 use anyhow::Result;
 use common::{create_hypercore, create_hypercore_hash, open_hypercore};
 use js::{cleanup, install, js_run_step, prepare_test_set};
-use test_log::test;
-
-#[cfg(feature = "tokio")]
-use tokio::test as async_test;
 
 const TEST_SET_JS_FIRST: &str = "jsfirst";
 const TEST_SET_RS_FIRST: &str = "rsfirst";
@@ -22,7 +18,7 @@ fn init() {
     });
 }
 
-#[test(async_test)]
+#[tokio::test]
 #[cfg_attr(not(feature = "js_interop_tests"), ignore)]
 async fn js_interop_js_first() -> Result<()> {
     init();
@@ -41,7 +37,7 @@ async fn js_interop_js_first() -> Result<()> {
     Ok(())
 }
 
-#[test(async_test)]
+#[tokio::test]
 #[cfg_attr(not(feature = "js_interop_tests"), ignore)]
 async fn js_interop_rs_first() -> Result<()> {
     init();

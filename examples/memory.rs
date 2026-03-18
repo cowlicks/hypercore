@@ -1,9 +1,7 @@
 use hypercore::{HypercoreBuilder, HypercoreError, Storage};
-#[cfg(feature = "tokio")]
-use tokio::main as async_main;
 
 /// Example about using an in-memory hypercore.
-#[async_main]
+#[tokio::main]
 async fn main() {
     // Create a memory storage
     let storage = Storage::new_memory()

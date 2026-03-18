@@ -1,10 +1,8 @@
 use hypercore::{HypercoreBuilder, HypercoreError, Storage};
 use tempfile::Builder;
-#[cfg(feature = "tokio")]
-use tokio::main as async_main;
 
 /// Example about using an in-memory hypercore.
-#[async_main]
+#[tokio::main]
 async fn main() {
     // For the purposes of this example, first create a
     // temporary directory to hold hypercore.

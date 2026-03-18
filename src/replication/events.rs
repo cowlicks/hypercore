@@ -116,14 +116,14 @@ mod test {
     use super::*;
     use crate::replication::CoreMethodsError;
 
-    #[async_std::test]
+    #[tokio::test]
     async fn test_events() -> Result<(), CoreMethodsError> {
         let mut core = crate::core::tests::create_hypercore_with_data(0).await?;
 
         // Check that appending data emits a DataUpgrade and Have event
 
         let mut rx = core.event_subscribe();
-        let handle = async_std::task::spawn(async move {
+        let handle = tokio::task::spawn(async move {
             let mut out = vec![];
             loop {
                 if out.len() == 2 {
@@ -135,7 +135,7 @@ mod test {
             }
         });
         core.append(b"foo").await?;
-        let (res, mut rx) = handle.await;
+        let (res, mut rx) = handle.await.unwrap();
         assert!(matches!(res[0], Event::DataUpgrade(_)));
         assert!(matches!(
             res[1],
@@ -150,7 +150,7 @@ mod test {
 
         // Check that Hypercore::get for missing data emits a Get event
 
-        let handle = async_std::task::spawn(async move {
+        let handle = tokio::task::spawn(async move {
             let mut out = vec![];
             loop {
                 if out.len() == 1 {
@@ -162,7 +162,7 @@ mod test {
             }
         });
         assert_eq!(core.get(1).await?, None);
-        let (res, rx) = handle.await;
+        let (res, rx) = handle.await.unwrap();
         assert!(matches!(
             res[0],
             Event::Get(Get {
