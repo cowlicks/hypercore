@@ -47,6 +47,21 @@ async fn make_writer_reader(data: &[&[u8]]) -> (Hypercore, Hypercore) {
     (writer, reader)
 }
 
+/// Get block 0 from `reader`, with `writer`'s replicator spawned to drive the other end.
+/// Uses `attach_replicator` so that `reader.get()` itself drives replication (structured
+/// concurrency path).
+async fn get_via_attached_replicator(writer: &Hypercore, reader: &Hypercore) -> Option<Vec<u8>> {
+    let (writer_stream, reader_stream) = connected_pair();
+    let writer_rep = tokio::spawn(writer.replicate(writer_stream));
+    reader.attach_replicator(reader.replicate(reader_stream));
+    let block = tokio::time::timeout(Duration::from_secs(5), reader.get(0))
+        .await
+        .expect("timed out waiting for attach_replicator get")
+        .unwrap();
+    writer_rep.abort();
+    block
+}
+
 /// Poll until `core.info().contiguous_length >= expected`, with a 5-second timeout.
 async fn wait_for_length(core: &Hypercore, expected: u64) {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
@@ -101,6 +116,43 @@ async fn replicate_data_after_connect() {
 
     writer_rep.abort();
     reader_rep.abort();
+}
+
+/// Without an attached replicator, `get()` returns `None` immediately for a missing block.
+#[tokio::test]
+async fn get_returns_none_without_replicator() {
+    let (_, reader) = make_writer_reader(&[b"hello"]).await;
+    assert_eq!(reader.get(0).await.unwrap(), None);
+}
+
+/// `attach_replicator` makes `reader.get()` drive replication itself — no spawn needed for
+/// the reader side.
+#[tokio::test]
+async fn attach_replicator_drives_get() {
+    let (writer, reader) = make_writer_reader(&[b"hello", b"world"]).await;
+    assert_eq!(
+        get_via_attached_replicator(&writer, &reader).await,
+        Some(b"hello".to_vec())
+    );
+}
+
+/// `attach_replicator` still works when the writer appends the block *after* the connection
+/// is established.
+#[tokio::test]
+async fn attach_replicator_drives_get_late_data() {
+    let (mut writer, reader) = make_writer_reader(&[]).await;
+    let (writer_stream, reader_stream) = connected_pair();
+    let writer_rep = tokio::spawn(writer.replicate(writer_stream));
+    reader.attach_replicator(reader.replicate(reader_stream));
+
+    writer.append(b"late").await.unwrap();
+
+    let block = tokio::time::timeout(Duration::from_secs(5), reader.get(0))
+        .await
+        .expect("timed out")
+        .unwrap();
+    assert_eq!(block, Some(b"late".to_vec()));
+    writer_rep.abort();
 }
 
 #[tokio::test]
