@@ -22,7 +22,7 @@ use hypercore_protocol::{
 };
 #[cfg(feature = "shared-core")]
 pub use shared_core::SharedCore;
-use tracing::{error, warn};
+use tracing::{error, trace, warn};
 
 use crate::{
     AppendOutcome, Hypercore, HypercoreError, Info, PartialKeypair,
@@ -655,7 +655,16 @@ impl Future for Replicator {
 
         // Drain pending connection streams → push new ConnectionReplicators into active.
         loop {
-            match Pin::new(&mut this.pending).poll_next(cx) {
+            let pending_result = Pin::new(&mut this.pending).poll_next(cx);
+            trace!(
+                "[replicator] pending.poll_next = {:?}",
+                match &pending_result {
+                    Poll::Ready(Some(_)) => "Ready(Some(conn))",
+                    Poll::Ready(None) => "Ready(None)",
+                    Poll::Pending => "Pending",
+                }
+            );
+            match pending_result {
                 Poll::Ready(Some(rep)) => this.active.push(rep),
                 Poll::Ready(None) | Poll::Pending => break,
             }
@@ -679,7 +688,6 @@ impl Future for Replicator {
 }
 
 // ── Hypercore::replicator / replicate ─────────────────────────────────────────
-
 impl Hypercore {
     /// Create a [`Replicator`] for this core. Add connections or connection
     /// streams, then `.await` to drive all replication.

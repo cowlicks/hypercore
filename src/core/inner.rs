@@ -642,7 +642,6 @@ impl Future for GetFuture {
                             }
                             // Subscribe before emitting Get so we can't miss the Have reply.
                             let rx = inner.event_subscribe();
-                            inner.events.send_on_get(this.index);
                             drop(inner);
                             this.waiting = Some(rx);
                         } else {

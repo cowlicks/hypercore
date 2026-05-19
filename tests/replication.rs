@@ -155,6 +155,43 @@ async fn attach_replicator_drives_get_late_data() {
     writer_rep.abort();
 }
 
+/// Sequential gets — after `get(0)` resolves, `get(1)` and `get(2)` must also work.
+#[tokio::test]
+async fn attach_replicator_gets_sequential_blocks() {
+    let (writer, reader) = make_writer_reader(&[b"a", b"b", b"c"]).await;
+    let (writer_stream, reader_stream) = connected_pair();
+    let writer_rep = tokio::spawn(writer.replicate(writer_stream));
+    reader.attach_replicator(reader.replicate(reader_stream));
+
+    for (i, expected) in [b"a".as_slice(), b"b", b"c"].iter().enumerate() {
+        let block = tokio::time::timeout(Duration::from_secs(5), reader.get(i as u64))
+            .await
+            .unwrap_or_else(|_| panic!("timed out on block {i}"))
+            .unwrap();
+        assert_eq!(block.as_deref(), Some(*expected), "block {i}");
+    }
+    writer_rep.abort();
+}
+
+/// Get a non-zero block directly without fetching earlier indices first.
+/// Verifies that `Event::Get` fires with the requested index, not always 0.
+#[tokio::test]
+async fn attach_replicator_get_by_index() {
+    let data: Vec<Vec<u8>> = (0u8..5).map(|i| vec![i]).collect();
+    let slices: Vec<&[u8]> = data.iter().map(|v| v.as_slice()).collect();
+    let (writer, reader) = make_writer_reader(&slices).await;
+    let (writer_stream, reader_stream) = connected_pair();
+    let writer_rep = tokio::spawn(writer.replicate(writer_stream));
+    reader.attach_replicator(reader.replicate(reader_stream));
+
+    let block = tokio::time::timeout(Duration::from_secs(5), reader.get(4))
+        .await
+        .expect("timed out")
+        .unwrap();
+    assert_eq!(block, Some(vec![4u8]));
+    writer_rep.abort();
+}
+
 #[tokio::test]
 async fn replicate_many_blocks() {
     let data: Vec<Vec<u8>> = (0u8..10).map(|i| vec![i]).collect();
