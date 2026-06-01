@@ -38,7 +38,6 @@ jobs:
         cargo check --all-targets --no-default-features --features sparse
         cargo check --all-targets --no-default-features --features sparse,cache
         cargo test --no-default-features --features js_interop_tests
-        cargo test --no-default-features --features js_interop_tests,shared-core
         cargo test --no-default-features --features js_interop_tests,sparse
         cargo test --no-default-features --features js_interop_tests,sparse,cache
         cargo test --benches --no-default-features
@@ -56,7 +55,6 @@ jobs:
           cargo check --all-targets --no-default-features --features sparse
           cargo check --all-targets --no-default-features --features sparse,cache
           cargo test --no-default-features
-          cargo test --no-default-features --features shared-core
           cargo test --no-default-features --features sparse
           cargo test --no-default-features --features sparse,cache
           cargo test --benches --no-default-features
@@ -75,7 +73,6 @@ jobs:
           cargo check --all-targets --no-default-features --features sparse
           cargo check --all-targets --no-default-features --features sparse,cache
           cargo test --no-default-features --features js_interop_tests
-          cargo test --no-default-features --features js_interop_tests,shared-core
           cargo test --no-default-features --features js_interop_tests,sparse
           cargo test --no-default-features --features js_interop_tests,sparse,cache
           cargo test --benches --no-default-features

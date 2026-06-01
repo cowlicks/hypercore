@@ -1,7 +1,5 @@
 //! Hypercore to Hypercore replication
 pub mod events;
-#[cfg(feature = "shared-core")]
-pub mod shared_core;
 
 use std::{
     collections::{BTreeSet, VecDeque},
@@ -20,8 +18,6 @@ use hypercore_protocol::{
     Channel, Message, Protocol, discovery_key,
     schema::{Data, Range, Request, Synchronize},
 };
-#[cfg(feature = "shared-core")]
-pub use shared_core::SharedCore;
 use tracing::{error, trace, warn};
 
 use crate::{
@@ -87,8 +83,7 @@ pub enum CoreMethodsError {
     HypercoreError(#[from] HypercoreError),
 }
 
-/// Trait for things that consume [`crate::Hypercore`] can instead use this trait
-/// so they can use all Hypercore-like things such as `SharedCore`.
+/// Trait for things that consume [`crate::Hypercore`].
 pub trait CoreMethods: CoreInfo {
     /// Check if the core has the block at the given index locally
     fn has(&self, index: u64) -> impl Future<Output = bool> + Send;
