@@ -34,9 +34,14 @@ jobs:
         components: rustfmt
     - name: Run tests
       run: |
+        cargo check --all-targets
+        cargo check --all-targets --all-features
         cargo check --all-targets --no-default-features
         cargo check --all-targets --no-default-features --features sparse
         cargo check --all-targets --no-default-features --features sparse,cache
+        cargo test
+        cargo test --all-features
+        cargo test --no-default-features
         cargo test --no-default-features --features js_interop_tests
         cargo test --no-default-features --features js_interop_tests,sparse
         cargo test --no-default-features --features js_interop_tests,sparse,cache
@@ -51,9 +56,13 @@ jobs:
           components: rustfmt
       - name: Run tests
         run: |
+          cargo check --all-targets
+          cargo check --all-targets --all-features
           cargo check --all-targets --no-default-features
           cargo check --all-targets --no-default-features --features sparse
           cargo check --all-targets --no-default-features --features sparse,cache
+          cargo test
+          cargo test --all-features
           cargo test --no-default-features
           cargo test --no-default-features --features sparse
           cargo test --no-default-features --features sparse,cache
@@ -69,9 +78,14 @@ jobs:
           components: rustfmt
       - name: Run tests
         run: |
+          cargo check --all-targets
+          cargo check --all-targets --all-features
           cargo check --all-targets --no-default-features
           cargo check --all-targets --no-default-features --features sparse
           cargo check --all-targets --no-default-features --features sparse,cache
+          cargo test
+          cargo test --all-features
+          cargo test --no-default-features
           cargo test --no-default-features --features js_interop_tests
           cargo test --no-default-features --features js_interop_tests,sparse
           cargo test --no-default-features --features js_interop_tests,sparse,cache
