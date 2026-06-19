@@ -8,7 +8,6 @@ fn bench_create_disk(c: &mut Criterion) {
     let mut group = c.benchmark_group("slow_call");
     group.measurement_time(Duration::from_secs(20));
 
-    #[cfg(feature = "tokio")]
     group.bench_function("create_disk", move |b| {
         let rt = tokio::runtime::Runtime::new().unwrap();
         b.to_async(&rt).iter(|| create_hypercore("create"));
@@ -44,7 +43,6 @@ fn bench_write_disk(c: &mut Criterion) {
     let mut group = c.benchmark_group("slow_call");
     group.measurement_time(Duration::from_secs(20));
 
-    #[cfg(feature = "tokio")]
     group.bench_function("write disk", |b| {
         let rt = tokio::runtime::Runtime::new().unwrap();
         b.to_async(&rt).iter_custom(write_disk);
@@ -65,7 +63,6 @@ fn bench_read_disk(c: &mut Criterion) {
     let mut group = c.benchmark_group("slow_call");
     group.measurement_time(Duration::from_secs(20));
 
-    #[cfg(feature = "tokio")]
     group.bench_function("read disk", |b| {
         let rt = tokio::runtime::Runtime::new().unwrap();
         b.to_async(&rt).iter_custom(read_disk);
@@ -89,7 +86,6 @@ fn bench_clear_disk(c: &mut Criterion) {
     let mut group = c.benchmark_group("slow_call");
     group.measurement_time(Duration::from_secs(20));
 
-    #[cfg(feature = "tokio")]
     group.bench_function("clear disk", |b| {
         let rt = tokio::runtime::Runtime::new().unwrap();
         b.to_async(&rt).iter_custom(clear_disk);

@@ -8,7 +8,6 @@ use hypercore::{Hypercore, HypercoreBuilder, HypercoreError, Storage};
 use random_access_memory::RandomAccessMemory;
 
 fn bench_create_memory(c: &mut Criterion) {
-    #[cfg(feature = "tokio")]
     c.bench_function("create memory", |b| {
         let rt = tokio::runtime::Runtime::new().unwrap();
         b.to_async(&rt).iter(|| create_hypercore(1024));
@@ -51,7 +50,6 @@ async fn create_hypercore(page_size: usize) -> Result<Hypercore, HypercoreError>
 }
 
 fn bench_write_memory(c: &mut Criterion) {
-    #[cfg(feature = "tokio")]
     c.bench_function("write memory", |b| {
         let rt = tokio::runtime::Runtime::new().unwrap();
         b.to_async(&rt).iter_custom(write_memory);
@@ -69,7 +67,6 @@ async fn write_memory(iters: u64) -> Duration {
 }
 
 fn bench_read_memory(c: &mut Criterion) {
-    #[cfg(feature = "tokio")]
     c.bench_function("read memory", |b| {
         let rt = tokio::runtime::Runtime::new().unwrap();
         b.to_async(&rt).iter_custom(read_memory);
@@ -90,7 +87,6 @@ async fn read_memory(iters: u64) -> Duration {
 }
 
 fn bench_clear_memory(c: &mut Criterion) {
-    #[cfg(feature = "tokio")]
     c.bench_function("clear memory", |b| {
         let rt = tokio::runtime::Runtime::new().unwrap();
         b.to_async(&rt).iter_custom(clear_memory);
