@@ -91,14 +91,14 @@ impl Hypercore {
 
     /// Appends a data slice to the hypercore.
     #[instrument(err, skip_all, fields(data_len = data.len()))]
-    pub async fn append(&mut self, data: &[u8]) -> Result<AppendOutcome, HypercoreError> {
+    pub async fn append(&self, data: &[u8]) -> Result<AppendOutcome, HypercoreError> {
         self.append_batch(&[data]).await
     }
 
     /// Appends a given batch of data slices to the hypercore.
     #[instrument(err, skip_all, fields(batch_len = batch.as_ref().len()))]
     pub async fn append_batch<A: AsRef<[u8]>, B: AsRef<[A]>>(
-        &mut self,
+        &self,
         batch: B,
     ) -> Result<AppendOutcome, HypercoreError> {
         let secret_key = match self.inner.key_pair().secret {
