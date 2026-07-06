@@ -50,7 +50,7 @@ fn bench_write_disk(c: &mut Criterion) {
 }
 
 async fn write_disk(iters: u64) -> Duration {
-    let mut hypercore = create_hypercore("write").await.unwrap();
+    let hypercore = create_hypercore("write").await.unwrap();
     let data = Vec::from("hello");
     let start = Instant::now();
     for _ in 0..iters {
@@ -70,7 +70,7 @@ fn bench_read_disk(c: &mut Criterion) {
 }
 
 async fn read_disk(iters: u64) -> Duration {
-    let mut hypercore = create_hypercore("read").await.unwrap();
+    let hypercore = create_hypercore("read").await.unwrap();
     let data = Vec::from("hello");
     for _ in 0..iters {
         hypercore.append(&data).await.unwrap();

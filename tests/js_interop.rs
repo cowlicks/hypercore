@@ -62,7 +62,7 @@ async fn step_1_create(work_dir: &str) -> Result<()> {
 }
 
 async fn step_2_append_hello_world(work_dir: &str) -> Result<()> {
-    let mut hypercore = open_hypercore(work_dir).await?;
+    let hypercore = open_hypercore(work_dir).await?;
     let batch: &[&[u8]] = &[b"Hello", b"World"];
     let append_outcome = hypercore.append_batch(batch).await?;
     assert_eq!(append_outcome.length, 2);
@@ -71,7 +71,7 @@ async fn step_2_append_hello_world(work_dir: &str) -> Result<()> {
 }
 
 async fn step_3_read_and_append_unflushed(work_dir: &str) -> Result<()> {
-    let mut hypercore = open_hypercore(work_dir).await?;
+    let hypercore = open_hypercore(work_dir).await?;
     let hello = hypercore.get(0).await?;
     assert_eq!(hello.unwrap(), b"Hello");
     let world = hypercore.get(1).await?;
@@ -103,7 +103,7 @@ async fn step_3_read_and_append_unflushed(work_dir: &str) -> Result<()> {
 }
 
 async fn step_4_append_with_flush(work_dir: &str) -> Result<()> {
-    let mut hypercore = open_hypercore(work_dir).await?;
+    let hypercore = open_hypercore(work_dir).await?;
     for i in 0..5 {
         let append_outcome = hypercore.append(&[i]).await?;
         assert_eq!(append_outcome.length, (6 + i + 1) as u64);

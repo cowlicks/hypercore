@@ -28,7 +28,7 @@ fn connected_pair() -> (impl CipherTrait + 'static, impl CipherTrait + 'static) 
 
 /// Create a writer (with data) and a blank reader sharing the same public key.
 async fn make_writer_reader(data: &[&[u8]]) -> (Hypercore, Hypercore) {
-    let mut writer = HypercoreBuilder::new(Storage::new_memory().await.unwrap())
+    let writer = HypercoreBuilder::new(Storage::new_memory().await.unwrap())
         .build()
         .await
         .unwrap();
@@ -102,7 +102,7 @@ async fn replicate_data_before_connect() {
 
 #[tokio::test]
 async fn replicate_data_after_connect() {
-    let (mut writer, reader) = make_writer_reader(&[]).await;
+    let (writer, reader) = make_writer_reader(&[]).await;
     let (writer_stream, reader_stream) = connected_pair();
 
     let writer_rep = tokio::spawn(writer.replicate(writer_stream));
@@ -140,7 +140,7 @@ async fn attach_replicator_drives_get() {
 /// is established.
 #[tokio::test]
 async fn attach_replicator_drives_get_late_data() {
-    let (mut writer, reader) = make_writer_reader(&[]).await;
+    let (writer, reader) = make_writer_reader(&[]).await;
     let (writer_stream, reader_stream) = connected_pair();
     let writer_rep = tokio::spawn(writer.replicate(writer_stream));
     reader.attach_replicator(reader.replicate(reader_stream));

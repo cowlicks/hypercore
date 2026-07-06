@@ -19,7 +19,7 @@ async fn main() {
         .expect("Could not create disk storage");
 
     // Build a new disk hypercore
-    let mut hypercore = HypercoreBuilder::new(storage)
+    let hypercore = HypercoreBuilder::new(storage)
         .build()
         .await
         .expect("Could not create disk hypercore");

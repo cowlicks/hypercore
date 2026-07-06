@@ -832,7 +832,7 @@ pub(crate) mod tests {
         key_pair: PartialKeypair,
     ) -> Result<Hypercore, HypercoreError> {
         let storage = Storage::new_memory().await?;
-        let mut hypercore = Hypercore::new(
+        let hypercore = Hypercore::new(
             storage,
             HypercoreOptions {
                 key_pair: Some(key_pair),

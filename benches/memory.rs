@@ -57,7 +57,7 @@ fn bench_write_memory(c: &mut Criterion) {
 }
 
 async fn write_memory(iters: u64) -> Duration {
-    let mut hypercore = create_hypercore(1024).await.unwrap();
+    let hypercore = create_hypercore(1024).await.unwrap();
     let data = Vec::from("hello");
     let start = Instant::now();
     for _ in 0..iters {
@@ -74,7 +74,7 @@ fn bench_read_memory(c: &mut Criterion) {
 }
 
 async fn read_memory(iters: u64) -> Duration {
-    let mut hypercore = create_hypercore(1024).await.unwrap();
+    let hypercore = create_hypercore(1024).await.unwrap();
     let data = Vec::from("hello");
     for _ in 0..iters {
         hypercore.append(&data).await.unwrap();

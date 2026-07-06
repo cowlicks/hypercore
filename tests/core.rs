@@ -45,7 +45,7 @@ async fn hypercore_make_read_only() -> Result<()> {
         .tempdir()
         .unwrap();
     let write_key_pair = {
-        let mut hypercore = create_hypercore(&dir.path().to_string_lossy()).await?;
+        let hypercore = create_hypercore(&dir.path().to_string_lossy()).await?;
         hypercore.append(b"Hello").await?;
         hypercore.append(b"World!").await?;
         hypercore.key_pair().clone()

@@ -118,7 +118,7 @@ mod test {
 
     #[tokio::test]
     async fn test_events() -> Result<(), CoreMethodsError> {
-        let mut core = crate::core::tests::create_hypercore_with_data(0).await?;
+        let core = crate::core::tests::create_hypercore_with_data(0).await?;
 
         // Check that appending data emits a DataUpgrade and Have event
 
