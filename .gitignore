@@ -13,3 +13,4 @@ my-first-dataset/
 feed.db/
 .vscode
 tests/js/work
+.claude
