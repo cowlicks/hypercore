@@ -45,7 +45,7 @@ version = "0.2.0"
 
 [dependencies.hypercore-protocol]
 optional = true
-version = "0.7.1"
+path = "../protocol"
 
 [dependencies.hypercore_handshake]
 version = "0.6.0"

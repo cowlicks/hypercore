@@ -682,6 +682,39 @@ impl Future for Replicator {
     }
 }
 
+// ── ChannelReplicator ──────────────────────────────────────────────────────────
+
+/// Drives replication for a single core over a [`Channel`] already opened on a
+/// [`Protocol`] someone else owns (e.g. a corestore-like multiplexer serving
+/// several cores over one physical connection).
+///
+/// Unlike [`ConnectionReplicator`], this does not create or drive a `Protocol`
+/// itself — it only runs the per-core wire protocol over an already-open
+/// channel. Returned as an opaque `impl Future` from [`Hypercore::attach_channel`].
+struct ChannelReplicator {
+    inner: HypercoreInner,
+    state: ChannelState,
+}
+
+impl ChannelReplicator {
+    fn new(inner: HypercoreInner, channel: Channel) -> Self {
+        let core_events = inner.event_subscribe();
+        Self {
+            state: ChannelState::new(channel, core_events),
+            inner,
+        }
+    }
+}
+
+impl Future for ChannelReplicator {
+    type Output = Result<(), HypercoreError>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+        this.state.poll(cx, &this.inner)
+    }
+}
+
 // ── Hypercore::replicator / replicate ─────────────────────────────────────────
 impl Hypercore {
     /// Create a [`Replicator`] for this core. Add connections or connection
@@ -718,5 +751,20 @@ impl Hypercore {
     /// the previous one.
     pub fn attach_replicator(&self, replicator: Replicator) {
         *self.inner.background.lock().unwrap() = Some(Box::pin(replicator));
+    }
+
+    /// Drive this core's replication over a [`Channel`] already opened on a
+    /// [`Protocol`] the caller owns and drives itself.
+    ///
+    /// Use this (instead of [`Hypercore::replicate`]) when multiplexing several
+    /// cores over one physical connection: the caller owns a single `Protocol`
+    /// for the connection, opens a channel per core's discovery key, and calls
+    /// this once per core with the resulting channel. Resolves when the channel
+    /// closes.
+    pub fn attach_channel(
+        &self,
+        channel: Channel,
+    ) -> impl Future<Output = Result<(), HypercoreError>> + Send + 'static {
+        ChannelReplicator::new(self.inner.clone(), channel)
     }
 }

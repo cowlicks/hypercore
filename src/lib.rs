@@ -50,7 +50,7 @@
 //! use hypercore::{HypercoreBuilder, Storage};
 //!
 //! // Create an in-memory hypercore using a builder
-//! let mut hypercore = HypercoreBuilder::new(Storage::new_memory().await.unwrap())
+//! let hypercore = HypercoreBuilder::new(Storage::new_memory().await.unwrap())
 //!     .build()
 //!     .await
 //!     .unwrap();
