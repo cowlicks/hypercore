@@ -43,7 +43,7 @@ macro_rules! ininner {
 }
 
 /// Hypercore is an append-only log structure.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Hypercore {
     pub(crate) inner: HypercoreInner,
 }
