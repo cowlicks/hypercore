@@ -44,8 +44,8 @@ futures-lite = "2.6.1"
 version = "0.2.0"
 
 [dependencies.hypercore-protocol]
+version = "0.7.2"
 optional = true
-path = "../protocol"
 
 [dependencies.hypercore_handshake]
 version = "0.6.0"
