@@ -29,14 +29,6 @@
 //!
 //! When using disk storage, clearing values may create sparse files. On by default.
 //!
-//! ### `async-std` (default)
-//!
-//! Use the async-std runtime, on by default. Either this or `tokio` is mandatory.
-//!
-//! ### `tokio`
-//!
-//! Use the tokio runtime. Either this or `async_std` is mandatory.
-//!
 //! ### `cache`
 //!
 //! Use a moka cache for merkle tree nodes to speed-up reading.
