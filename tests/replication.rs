@@ -50,6 +50,18 @@ async fn make_writer_reader(data: &[&[u8]]) -> (Hypercore, Hypercore) {
     (writer, reader)
 }
 
+/// Another read-only replica of `core`'s core, for building multi-peer setups.
+async fn make_replica(core: &Hypercore) -> Hypercore {
+    HypercoreBuilder::new(Storage::new_memory().await.unwrap())
+        .key_pair(PartialKeypair {
+            public: core.key_pair().public,
+            secret: None,
+        })
+        .build()
+        .await
+        .unwrap()
+}
+
 /// Get block 0 from `reader`, with `writer`'s replicator spawned to drive the other end.
 /// Uses `attach_replicator` so that `reader.get()` itself drives replication (structured
 /// concurrency path).
@@ -195,6 +207,77 @@ async fn update_on_writable_core_returns_false() {
         matches!(err, HypercoreError::Timeout { .. }),
         "expected Timeout, got {err:?}"
     );
+}
+
+/// Two peers where only one has anything, so the per-peer loop has to cope with a mix.
+///
+/// This deliberately does *not* assert the returned bool. `update` answers from the peers
+/// connected at the moment it decides — matching Javascript's `_checkUpgradeIfAvailable`,
+/// which likewise iterates only `this.peers` — so if the empty peer happens to register and
+/// sync before the writer's channel opens, `Ok(false)` is the correct answer. What is
+/// guaranteed either way is the postcondition: `update` does not return while a peer it can
+/// see is known to have more.
+#[tokio::test]
+async fn update_with_two_peers_only_one_useful() {
+    let (writer, reader) = make_writer_reader(&[b"hello", b"world"]).await;
+    let empty_peer = make_replica(&writer).await;
+
+    let (writer_stream, reader_stream_a) = connected_pair();
+    let (empty_stream, reader_stream_b) = connected_pair();
+    let writer_rep = tokio::spawn(writer.replicate(writer_stream));
+    let empty_rep = tokio::spawn(empty_peer.replicate(empty_stream));
+
+    reader.attach_replicator(
+        reader
+            .replicator()
+            .with_connection(reader_stream_a)
+            .with_connection(reader_stream_b),
+    );
+
+    // Retry to absorb the registration race described above: whichever peer wins, the reader
+    // must end up at the writer's length rather than stalling on the empty peer.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while reader.info().length < 2 {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "reader stuck at length {} with 2 peers attached",
+            reader.info().length
+        );
+        reader.update(update_opts(1000)).await.unwrap();
+    }
+    assert_eq!(reader.info().length, 2);
+    assert_eq!(reader.peer_count(), 2, "both peers should be registered");
+
+    writer_rep.abort();
+    empty_rep.abort();
+}
+
+/// With two peers and nothing newer anywhere, `update` reports false — but only after both
+/// have been heard from.
+#[tokio::test]
+async fn update_with_two_peers_all_in_sync() {
+    let (writer, reader) = make_writer_reader(&[b"hello", b"world"]).await;
+    let other = make_replica(&writer).await;
+
+    let (writer_stream, reader_stream_a) = connected_pair();
+    let (other_stream, reader_stream_b) = connected_pair();
+    let writer_rep = tokio::spawn(writer.replicate(writer_stream));
+    let other_rep = tokio::spawn(other.replicate(other_stream));
+
+    reader.attach_replicator(
+        reader
+            .replicator()
+            .with_connection(reader_stream_a)
+            .with_connection(reader_stream_b),
+    );
+
+    assert!(reader.update(update_opts(5000)).await.unwrap());
+    assert!(!reader.update(update_opts(5000)).await.unwrap());
+    assert_eq!(reader.info().length, 2);
+    assert_eq!(reader.peer_count(), 2);
+
+    writer_rep.abort();
+    other_rep.abort();
 }
 
 /// `update` also works when replication is driven by someone else entirely (a spawned
@@ -348,3 +431,4 @@ async fn replicate_many_blocks() {
     writer_rep.abort();
     reader_rep.abort();
 }
+
