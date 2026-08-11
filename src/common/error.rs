@@ -49,6 +49,12 @@ pub enum HypercoreError {
         /// Context for the error
         context: String,
     },
+    /// An operation gave up waiting
+    #[error("Operation timed out. {context}")]
+    Timeout {
+        /// Context for the error
+        context: String,
+    },
     /// Unexpected IO error occured
     #[error("Unrecoverable input/output error occured.{}",
           .context.as_ref().map_or_else(String::new, |ctx| format!(" {ctx}.")))]

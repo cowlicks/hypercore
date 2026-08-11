@@ -1,11 +1,16 @@
 //! Hypercore to Hypercore replication
 pub mod events;
+mod update;
 
 use std::{
     collections::{BTreeSet, VecDeque},
     future::Future,
     io,
     pin::Pin,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+    },
     task::{Context, Poll},
 };
 
@@ -29,6 +34,7 @@ use crate::{
 use hypercore_schema::{RequestBlock, RequestSeek, RequestUpgrade};
 
 pub use events::Event;
+pub use update::{UpdateFuture, UpdateOptions};
 
 use async_broadcast::Receiver;
 
@@ -131,32 +137,72 @@ impl RemoteBitfield {
     }
 }
 
+// ── PeerSyncState ──────────────────────────────────────────────────────────────
+
+/// Generate paired getter/setter methods over atomic fields.
+macro_rules! atomic_accessors {
+    ($($get:ident / $set:ident : $ty:ty),* $(,)?) => {
+        $(
+            pub(crate) fn $get(&self) -> $ty {
+                self.$get.load(Ordering::Relaxed)
+            }
+            pub(crate) fn $set(&self, value: $ty) {
+                self.$get.store(value, Ordering::Relaxed)
+            }
+        )*
+    };
+}
+
+/// The slice of one peer's protocol state that the core itself needs, in order to answer
+/// "could any peer still upgrade me?" — see [`crate::Hypercore::update`].
+///
+/// Owned by the [`ChannelState`] that writes it. The core holds only [`std::sync::Weak`]
+/// observers, so when a channel goes away its entry simply becomes unreachable and is pruned
+/// on the next read; there is no deregistration to get wrong.
+#[derive(Debug, Default)]
+pub(crate) struct PeerSyncState {
+    /// The peer has sent us at least one [`Synchronize`].
+    remote_synced: AtomicBool,
+    remote_fork: AtomicU64,
+    remote_length: AtomicU64,
+    /// The peer says it can serve us an upgrade starting from the length we last told it.
+    remote_can_upgrade: AtomicBool,
+    /// The length of *ours* that the peer has echoed back to us.
+    length_acked: AtomicU64,
+    /// An upgrade [`Request`] is on the wire and its [`Data`] has not been applied yet.
+    upgrade_inflight: AtomicBool,
+}
+
+impl PeerSyncState {
+    atomic_accessors! {
+        remote_synced / set_remote_synced: bool,
+        remote_fork / set_remote_fork: u64,
+        remote_length / set_remote_length: u64,
+        remote_can_upgrade / set_remote_can_upgrade: bool,
+        length_acked / set_length_acked: u64,
+        upgrade_inflight / set_upgrade_inflight: bool,
+    }
+}
+
 // ── PeerState ──────────────────────────────────────────────────────────────────
 
 struct PeerState {
     can_upgrade: bool,
-    remote_fork: u64,
-    remote_length: u64,
     remote_bitfield: RemoteBitfield,
-    remote_can_upgrade: bool,
     remote_uploading: bool,
     remote_downloading: bool,
-    remote_synced: bool,
-    length_acked: u64,
+    /// The subset of this state the core can observe. See [`PeerSyncState`].
+    shared: Arc<PeerSyncState>,
 }
 
 impl Default for PeerState {
     fn default() -> Self {
         Self {
             can_upgrade: true,
-            remote_fork: 0,
-            remote_length: 0,
             remote_bitfield: RemoteBitfield::new(),
-            remote_can_upgrade: false,
             remote_uploading: true,
             remote_downloading: true,
-            remote_synced: false,
-            length_acked: 0,
+            shared: Arc::new(PeerSyncState::default()),
         }
     }
 }
@@ -197,15 +243,25 @@ struct ChannelState {
     pending_request_indices: VecDeque<u64>,
     pending_missing_nodes: Option<(u64, MissingNodesFuture)>,
 
-    // Core events (Get / Have / DataUpgrade)
+    // (our fork, our length, their length) of the last upgrade Request we sent, so that
+    // re-checking every poll does not re-send the same request.
+    last_upgrade_requested: Option<(u64, u64, u64)>,
+
+    // Core events (Get / Have / DataUpgrade / Upgrade)
     core_events: async_broadcast::Receiver<events::Event>,
 }
 
 impl ChannelState {
-    fn new(channel: Channel, core_events: async_broadcast::Receiver<events::Event>) -> Self {
+    /// Registers this peer with `inner`, so that [`crate::Hypercore::update`] can see its
+    /// advertised length. The registry holds a `Weak`, so dropping this `ChannelState` is
+    /// all the deregistration there is.
+    fn new(channel: Channel, inner: &HypercoreInner) -> Self {
+        let state = PeerState::default();
+        inner.register_peer(&state.shared);
+        inner.send_event(events::PeerSync {});
         Self {
             channel,
-            state: PeerState::default(),
+            state,
             synced: false,
             outgoing: VecDeque::new(),
             pending_send: None,
@@ -216,7 +272,8 @@ impl ChannelState {
             pending_data_meta: None,
             pending_request_indices: VecDeque::new(),
             pending_missing_nodes: None,
-            core_events,
+            last_upgrade_requested: None,
+            core_events: inner.event_subscribe(),
         }
     }
 
@@ -244,8 +301,8 @@ impl ChannelState {
         // ── Initial sync ───────────────────────────────────────────────────────
         if !self.synced {
             let info = inner.info();
-            let remote_length = if info.fork == self.state.remote_fork {
-                self.state.remote_length
+            let remote_length = if info.fork == self.state.shared.remote_fork() {
+                self.state.shared.remote_length()
             } else {
                 0
             };
@@ -284,7 +341,9 @@ impl ChannelState {
             match Pin::new(fut).poll(cx) {
                 Poll::Ready(Ok(nodes)) => {
                     self.pending_missing_nodes = None;
-                    if self.state.remote_bitfield.get(index) && self.state.remote_length > index {
+                    if self.state.remote_bitfield.get(index)
+                        && self.state.shared.remote_length() > index
+                    {
                         let info = inner.info();
                         self.outgoing.push_back(vec![Message::Request(Request {
                             id: index + 1,
@@ -343,6 +402,9 @@ impl ChannelState {
                 Poll::Ready(Ok(_applied)) => {
                     self.pending_verify_apply = None;
                     if let Some(meta) = self.pending_data_meta.take() {
+                        if meta.has_upgrade {
+                            self.state.shared.set_upgrade_inflight(false);
+                        }
                         let next_index = if meta.has_upgrade {
                             (meta.pre_length < meta.remote_length).then_some(meta.pre_length)
                         } else {
@@ -356,9 +418,25 @@ impl ChannelState {
                         }
                     }
                 }
-                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                Poll::Ready(Err(e)) => {
+                    if self
+                        .pending_data_meta
+                        .take()
+                        .is_some_and(|meta| meta.has_upgrade)
+                    {
+                        self.state.shared.set_upgrade_inflight(false);
+                    }
+                    return Poll::Ready(Err(e));
+                }
                 Poll::Pending => {}
             }
+        }
+
+        // ── Re-check whether we should ask this peer for an upgrade ────────────
+        // The peer's Synchronize may have arrived at a moment when we could not act on it
+        // (e.g. it had not yet acked our length). This is the analogue of JS's `updateAll`.
+        if self.maybe_request_upgrade(inner) {
+            cx.waker().wake_by_ref();
         }
 
         // ── Poll channel for incoming messages ─────────────────────────────────
@@ -391,7 +469,7 @@ impl ChannelState {
                     self.pending_data_meta = Some(DataMeta {
                         has_upgrade: msg.upgrade.is_some(),
                         pre_length: info.length,
-                        remote_length: self.state.remote_length,
+                        remote_length: self.state.shared.remote_length(),
                         block_index: msg.block.as_ref().map(|b| b.index),
                     });
                     self.pending_verify_apply =
@@ -407,56 +485,80 @@ impl ChannelState {
 
     fn on_synchronize(&mut self, msg: &Synchronize, inner: &HypercoreInner) {
         let info = inner.info();
-        let peer_length_changed = msg.length != self.state.remote_length;
-        let first_sync = !self.state.remote_synced;
+        let first_sync = !self.state.shared.remote_synced();
         let same_fork = msg.fork == info.fork;
 
-        self.state.remote_fork = msg.fork;
-        self.state.remote_length = msg.length;
-        self.state.remote_can_upgrade = msg.can_upgrade;
+        let shared = &self.state.shared;
+        shared.set_remote_fork(msg.fork);
+        shared.set_remote_length(msg.length);
+        shared.set_remote_can_upgrade(msg.can_upgrade);
+        shared.set_remote_synced(true);
+        shared.set_length_acked(if same_fork { msg.remote_length } else { 0 });
         self.state.remote_uploading = msg.uploading;
         self.state.remote_downloading = msg.downloading;
-        self.state.remote_synced = true;
-        self.state.length_acked = if same_fork { msg.remote_length } else { 0 };
 
-        let mut messages = vec![];
         if first_sync {
-            messages.push(Message::Synchronize(Synchronize {
-                fork: info.fork,
-                length: info.length,
-                remote_length: self.state.remote_length,
-                can_upgrade: self.state.can_upgrade,
-                uploading: true,
-                downloading: true,
-            }));
+            self.outgoing
+                .push_back(vec![Message::Synchronize(Synchronize {
+                    fork: info.fork,
+                    length: info.length,
+                    remote_length: self.state.shared.remote_length(),
+                    can_upgrade: self.state.can_upgrade,
+                    uploading: true,
+                    downloading: true,
+                })]);
         }
-        if self.state.remote_length > info.length
-            && self.state.length_acked == info.length
-            && peer_length_changed
-        {
-            messages.push(Message::Request(Request {
-                id: 1,
-                fork: info.fork,
-                hash: None,
-                block: None,
-                seek: None,
-                upgrade: Some(RequestUpgrade {
-                    start: info.length,
-                    length: self.state.remote_length - info.length,
-                }),
-                manifest: false,
-                priority: 42,
-            }));
+
+        self.maybe_request_upgrade(inner);
+
+        // Wake any `Hypercore::update` waiting on this peer's advertised length.
+        inner.send_event(events::PeerSync {});
+    }
+
+    /// Ask this peer to grow our verified length, if it has advertised a longer one and we are
+    /// not already waiting on an upgrade from it. Returns whether a request was queued.
+    ///
+    /// Called both when a [`Synchronize`] arrives and once per poll, because the conditions can
+    /// become true after the fact — most often `length_acked` catching up to our own length.
+    /// This is the analogue of JS's `_updatePeerNonPrimary` upgrade branch.
+    fn maybe_request_upgrade(&mut self, inner: &HypercoreInner) -> bool {
+        let info = inner.info();
+        let shared = &self.state.shared;
+        if !shared.remote_synced() || shared.upgrade_inflight() {
+            return false;
         }
-        if !messages.is_empty() {
-            self.outgoing.push_back(messages);
+        let remote_length = shared.remote_length();
+        if remote_length <= info.length || shared.length_acked() != info.length {
+            return false;
         }
+        // Don't re-send the same request on every poll.
+        let request = (info.fork, info.length, remote_length);
+        if self.last_upgrade_requested == Some(request) {
+            return false;
+        }
+        self.last_upgrade_requested = Some(request);
+        shared.set_upgrade_inflight(true);
+        self.outgoing.push_back(vec![Message::Request(Request {
+            id: 1,
+            fork: info.fork,
+            hash: None,
+            block: None,
+            seek: None,
+            upgrade: Some(RequestUpgrade {
+                start: info.length,
+                length: remote_length - info.length,
+            }),
+            manifest: false,
+            priority: 42,
+        })]);
+        true
     }
 
     fn on_core_event(&mut self, event: events::Event, inner: &HypercoreInner) {
         match event {
             events::Event::Get(evt) => {
-                if self.state.remote_length > evt.index && self.state.remote_bitfield.get(evt.index)
+                if self.state.shared.remote_length() > evt.index
+                    && self.state.remote_bitfield.get(evt.index)
                 {
                     self.pending_request_indices.push_back(evt.index);
                 }
@@ -474,12 +576,15 @@ impl ChannelState {
                     .push_back(vec![Message::Synchronize(Synchronize {
                         fork: info.fork,
                         length: info.length,
-                        remote_length: self.state.remote_length,
+                        remote_length: self.state.shared.remote_length(),
                         downloading: true,
                         uploading: true,
                         can_upgrade: self.state.can_upgrade,
                     })]);
             }
+            // Pure wake-ups. `Upgrade` is handled by the `maybe_request_upgrade` re-check that
+            // runs every poll, and `PeerSync` is only ever of interest to `Hypercore::update`.
+            events::Event::PeerSync(_) | events::Event::Upgrade(_) => {}
         }
     }
 }
@@ -558,8 +663,7 @@ impl ConnectionReplicator {
             }
             hypercore_protocol::Event::Channel(channel) => {
                 if self.discovery_key == *channel.discovery_key() {
-                    let core_events = self.inner.event_subscribe();
-                    self.channel_state = Some(ChannelState::new(channel, core_events));
+                    self.channel_state = Some(ChannelState::new(channel, &self.inner));
                 } else {
                     error!("Wrong discovery key?");
                 }
@@ -698,9 +802,8 @@ struct ChannelReplicator {
 
 impl ChannelReplicator {
     fn new(inner: HypercoreInner, channel: Channel) -> Self {
-        let core_events = inner.event_subscribe();
         Self {
-            state: ChannelState::new(channel, core_events),
+            state: ChannelState::new(channel, &inner),
             inner,
         }
     }

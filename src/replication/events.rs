@@ -45,6 +45,18 @@ impl From<&BitfieldUpdate> for Have {
     }
 }
 
+/// Emitted when a peer's advertised sync state changes, or when a peer is added.
+///
+/// Deliberately payload-free: this is only a wake-up signal. The event channel drops messages
+/// under load, so nothing may depend on receiving any particular one. Authoritative peer state
+/// lives in the core's peer registry and must be read from there.
+#[derive(Debug, Clone)]
+pub struct PeerSync {}
+
+/// Emitted by [`crate::Hypercore::update`] to ask replicators to (re)send an upgrade request.
+#[derive(Debug, Clone)]
+pub struct Upgrade {}
+
 #[derive(Debug, Clone)]
 /// Core events relevant to replication
 pub enum Event {
@@ -54,6 +66,10 @@ pub enum Event {
     DataUpgrade(DataUpgrade),
     /// Emmitted when core gets new blocks
     Have(Have),
+    /// Emitted when a peer's advertised sync state changes
+    PeerSync(PeerSync),
+    /// Emitted when a caller wants peers asked for an upgrade
+    Upgrade(Upgrade),
 }
 
 /// Derive From<msg> for Enum where enum variant and msg have the same name
@@ -70,6 +86,8 @@ macro_rules! impl_from_for_enum_variant {
 impl_from_for_enum_variant!(Event, Get);
 impl_from_for_enum_variant!(Event, DataUpgrade);
 impl_from_for_enum_variant!(Event, Have);
+impl_from_for_enum_variant!(Event, PeerSync);
+impl_from_for_enum_variant!(Event, Upgrade);
 
 #[derive(Debug)]
 pub(crate) struct Events {

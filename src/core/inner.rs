@@ -4,6 +4,8 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
+#[cfg(feature = "replication")]
+use std::sync::Weak;
 
 use ed25519_dalek::Signature;
 use futures::future::Either;
@@ -274,11 +276,21 @@ pub(crate) type BackgroundFuture = Arc<
     Mutex<Option<Pin<Box<dyn std::future::Future<Output = Result<(), HypercoreError>> + Send>>>>,
 >;
 
+/// Directory of the peers currently replicating this core.
+///
+/// Each entry is owned by the `ChannelState` that writes it, so a `Weak` that no longer
+/// upgrades means that channel is gone. Dead entries are pruned whenever the list is read.
+#[cfg(feature = "replication")]
+pub(crate) type PeerRegistry = Arc<Mutex<Vec<Weak<crate::replication::PeerSyncState>>>>;
+
 pub(crate) struct HypercoreInner {
     pub(crate) inner: Arc<Mutex<HypercoreInnerInner>>,
     /// Replicator driven in-band by any `Hypercore::get` that must wait for a block.
     #[cfg(feature = "replication")]
     pub(crate) background: BackgroundFuture,
+    /// Observers of every connected peer's sync state. Read by `Hypercore::update`.
+    #[cfg(feature = "replication")]
+    pub(crate) peers: PeerRegistry,
 }
 
 impl std::fmt::Debug for HypercoreInner {
@@ -293,6 +305,8 @@ impl Clone for HypercoreInner {
             inner: self.inner.clone(),
             #[cfg(feature = "replication")]
             background: self.background.clone(),
+            #[cfg(feature = "replication")]
+            peers: self.peers.clone(),
         }
     }
 }
@@ -308,6 +322,8 @@ impl HypercoreInner {
             )),
             #[cfg(feature = "replication")]
             background: Arc::new(Mutex::new(None)),
+            #[cfg(feature = "replication")]
+            peers: Arc::new(Mutex::new(Vec::new())),
         })
     }
     pub(crate) fn info(&self) -> Info {
@@ -326,6 +342,28 @@ impl HypercoreInner {
         &self,
     ) -> async_broadcast::Receiver<crate::replication::events::Event> {
         self.inner.lock().unwrap().event_subscribe()
+    }
+
+    /// Best-effort broadcast of a core event. See [`crate::replication::events::Events::send`].
+    #[cfg(feature = "replication")]
+    pub(crate) fn send_event<T: Into<crate::replication::events::Event>>(&self, event: T) {
+        let _ = self.inner.lock().unwrap().events.send(event);
+    }
+
+    /// Start observing `peer`'s sync state. The caller keeps the only strong reference.
+    #[cfg(feature = "replication")]
+    pub(crate) fn register_peer(&self, peer: &Arc<crate::replication::PeerSyncState>) {
+        let mut peers = self.peers.lock().unwrap();
+        peers.retain(|p| p.strong_count() > 0);
+        peers.push(Arc::downgrade(peer));
+    }
+
+    /// The peers still replicating this core, pruning any whose channel has gone away.
+    #[cfg(feature = "replication")]
+    pub(crate) fn peers(&self) -> Vec<Arc<crate::replication::PeerSyncState>> {
+        let mut peers = self.peers.lock().unwrap();
+        peers.retain(|p| p.strong_count() > 0);
+        peers.iter().filter_map(Weak::upgrade).collect()
     }
     pub(crate) fn append_outcome(&self) -> AppendOutcome {
         self.inner.lock().unwrap().append_outcome()
@@ -558,7 +596,9 @@ impl GetFuture {
                         cx.waker().wake_by_ref();
                         return Poll::Pending;
                     }
-                    Poll::Ready(Some(Event::Get(_))) => {}
+                    Poll::Ready(Some(
+                        Event::Get(_) | Event::PeerSync(_) | Event::Upgrade(_),
+                    )) => {}
                     Poll::Ready(None) => return Poll::Ready(Ok(None)),
                     Poll::Pending => break,
                 }
@@ -637,7 +677,6 @@ impl Future for GetFuture {
                             inner.events.send_on_get(this.index);
                             if this.background.lock().unwrap().is_none() {
                                 // No replicator — return None immediately (original behaviour).
-                                dbg!();
                                 return Poll::Ready(Ok(None));
                             }
                             // Subscribe before emitting Get so we can't miss the Have reply.
